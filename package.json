@@ -1,0 +1,36 @@
+{
+  "name": "figma-library-maintenance-tools",
+  "version": "1.0.0",
+  "description": "A collection of CLI tools for auditing and maintaining Figma design libraries via the REST API",
+  "type": "module",
+  "bin": {
+    "figma-lint-names": "./src/tools/lint-layer-names/cli.js",
+    "figma-lint-duplicates": "./src/tools/lint-duplicate-siblings/cli.js",
+    "figma-lint-autolayout": "./src/tools/lint-autolayout-values/cli.js",
+    "figma-check-descriptions": "./src/tools/check-descriptions/cli.js",
+    "figma-audit-properties": "./src/tools/audit-property-names/cli.js",
+    "figma-scan-pages": "./src/tools/scan-page-hygiene/cli.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "figma",
+    "design-system",
+    "lint",
+    "automation",
+    "cli"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.1"
+  }
+}
