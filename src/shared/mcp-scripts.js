@@ -141,6 +141,16 @@ function extractNode(node, currentDepth) {
   if (node.type === 'TEXT') {
     n.characters = node.characters;
     if (typeof node.fontSize === 'number') n.fontSize = node.fontSize;
+    if (node.fontName) n.fontName = { family: node.fontName.family, style: node.fontName.style };
+    if (node.textStyleId !== undefined) n.textStyleId = node.textStyleId;
+  }
+
+  // Border radius properties
+  if ('topLeftRadius' in node) {
+    n.topLeftRadius = node.topLeftRadius;
+    n.topRightRadius = node.topRightRadius;
+    n.bottomLeftRadius = node.bottomLeftRadius;
+    n.bottomRightRadius = node.bottomRightRadius;
   }
 
   // Children — recurse if within depth limit
@@ -249,5 +259,38 @@ return {
     variables: variables,
   },
 };
+`
+}
+
+/**
+ * Builds a Plugin API script that extracts local text styles.
+ *
+ * The text style linter uses this to suggest the closest matching style
+ * for hardcoded text nodes.
+ *
+ * Returned shape:
+ * ```json
+ * [
+ *   { "name": "Text 1/Medium", "fontSize": 13, "fontName": { "family": "Inter", "style": "Medium" } },
+ *   ...
+ * ]
+ * ```
+ *
+ * @returns {string} Plugin API JavaScript code to pass to `use_figma`
+ */
+export function getTextStylesScript() {
+  return `
+const styles = figma.getLocalTextStyles();
+return styles.map(function(s) {
+  return {
+    name: s.name,
+    id: s.id,
+    key: s.key,
+    fontSize: s.fontSize,
+    fontName: s.fontName ? { family: s.fontName.family, style: s.fontName.style } : undefined,
+    lineHeight: s.lineHeight,
+    letterSpacing: s.letterSpacing,
+  };
+});
 `
 }

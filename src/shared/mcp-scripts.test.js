@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getFileScript, getLocalVariablesScript } from './mcp-scripts.js'
+import { getFileScript, getLocalVariablesScript, getTextStylesScript } from './mcp-scripts.js'
 
 describe('getFileScript', () => {
   it('returns a non-empty string', () => {
@@ -65,6 +65,20 @@ describe('getFileScript', () => {
     expect(script).toContain('paddingTop')
     expect(script).toContain('itemSpacing')
   })
+
+  it('extracts border radius properties', () => {
+    const script = getFileScript()
+    expect(script).toContain('topLeftRadius')
+    expect(script).toContain('topRightRadius')
+    expect(script).toContain('bottomLeftRadius')
+    expect(script).toContain('bottomRightRadius')
+  })
+
+  it('extracts textStyleId and fontName for TEXT nodes', () => {
+    const script = getFileScript()
+    expect(script).toContain('textStyleId')
+    expect(script).toContain('fontName')
+  })
 })
 
 describe('getLocalVariablesScript', () => {
@@ -111,5 +125,30 @@ describe('getLocalVariablesScript', () => {
   it('skips non-matching collections when filter is set', () => {
     const script = getLocalVariablesScript({ collectionFilter: 'space' })
     expect(script).toContain('continue')
+  })
+})
+
+describe('getTextStylesScript', () => {
+  it('returns a non-empty string', () => {
+    const script = getTextStylesScript()
+    expect(typeof script).toBe('string')
+    expect(script.length).toBeGreaterThan(50)
+  })
+
+  it('uses getLocalTextStyles from Plugin API', () => {
+    const script = getTextStylesScript()
+    expect(script).toContain('figma.getLocalTextStyles')
+  })
+
+  it('extracts fontSize and fontName', () => {
+    const script = getTextStylesScript()
+    expect(script).toContain('fontSize')
+    expect(script).toContain('fontName')
+  })
+
+  it('includes style name and key', () => {
+    const script = getTextStylesScript()
+    expect(script).toContain('s.name')
+    expect(script).toContain('s.key')
   })
 })
