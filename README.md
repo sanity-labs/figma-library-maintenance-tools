@@ -44,8 +44,8 @@ Every tool needs a **Figma personal access token** and a **file key**.
 Create a `.env` file in the project root (see `.env.example`). The tools automatically load this file at startup via [dotenv](https://github.com/motdotla/dotenv), so there's no need to `source` or `export` manually:
 
 ```sh
-FIGMA_ACCESS_TOKEN=figd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-FIGMA_FILE_KEY=abcDEF123ghiJKL456
+FIGMA_ACCESS_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FIGMA_FILE_KEY=xxxxxxxxxxxxxx
 FIGMA_BRANCH_KEY=                # optional — set when working on a Figma branch
 ```
 
