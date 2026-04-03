@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { loadEnv } from "../../shared/env.js";
-import { parseCliArgs, formatReport } from "../../shared/cli-utils.js";
+import { parseCliArgs, formatReport, summarizeReport } from "../../shared/cli-utils.js";
 import { readStdin } from "../../shared/stdin.js";
 import { lintAutolayoutValues } from "./index.js";
 
@@ -18,6 +18,9 @@ Options:
   -p, --pages <names>     Comma-separated page names to check
       --stdin             Read pre-fetched Figma data from stdin (no token needed).
                           Stdin JSON must include both fileData and variablesData.
+      --summary           Deduplicate issues by grouping identical patterns.
+                          Shows unique component+layer+value combinations with
+                          occurrence counts instead of individual issues.
       --format <fmt>      Output format: json (default) or text
   -h, --help              Show this help message
 
@@ -38,7 +41,8 @@ async function main() {
       config.variablesData = variablesData;
     }
     const report = await lintAutolayoutValues(config);
-    console.log(formatReport(report, config.format));
+    const output = config.summary ? summarizeReport(report) : report;
+    console.log(formatReport(output, config.format));
     process.exit(report.issues.length > 0 ? 1 : 0);
   } catch (err) {
     console.error(`Error: ${err.message}`);

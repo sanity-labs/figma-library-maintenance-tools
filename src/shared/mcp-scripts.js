@@ -72,9 +72,17 @@ function extractNode(node, currentDepth) {
     n.description = node.description;
   }
 
-  // Component property definitions (component sets and standalone components)
-  if ('componentPropertyDefinitions' in node && node.componentPropertyDefinitions) {
-    n.componentPropertyDefinitions = node.componentPropertyDefinitions;
+  // Component property definitions — only safe on COMPONENT_SET nodes and
+  // standalone COMPONENT nodes (not variant children of a set).  Accessing
+  // this property on a variant component throws in the Plugin API.
+  if (
+    (node.type === 'COMPONENT_SET' ||
+      (node.type === 'COMPONENT' && (!node.parent || node.parent.type !== 'COMPONENT_SET'))) &&
+    'componentPropertyDefinitions' in node
+  ) {
+    try {
+      n.componentPropertyDefinitions = node.componentPropertyDefinitions;
+    } catch (e) { /* skip — safety net for unexpected node configurations */ }
   }
 
   // Auto-layout properties
@@ -179,15 +187,26 @@ return { document: document };
  * }
  * ```
  *
+ * @param {Object} [options]
+ * @param {string} [options.collectionFilter] - Case-insensitive regex pattern to match
+ *   collection names. Only matching collections (and their variables) are returned.
+ *   Omit to return all collections. Example: `'spac(e|ing)'` for the Space collection.
  * @returns {string} Plugin API JavaScript code to pass to `use_figma`
  */
-export function getLocalVariablesScript() {
+export function getLocalVariablesScript(options = {}) {
+  const { collectionFilter } = options
+
   return `
+const COLLECTION_FILTER = ${collectionFilter ? JSON.stringify(collectionFilter) : 'null'};
 const collections = figma.variables.getLocalVariableCollections();
 const variableCollections = {};
 const variables = {};
 
 for (const collection of collections) {
+  if (COLLECTION_FILTER && !new RegExp(COLLECTION_FILTER, 'i').test(collection.name)) {
+    continue;
+  }
+
   variableCollections[collection.id] = {
     id: collection.id,
     name: collection.name,

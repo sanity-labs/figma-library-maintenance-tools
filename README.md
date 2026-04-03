@@ -100,7 +100,7 @@ import { getFileScript, getLocalVariablesScript } from 'figma-library-maintenanc
 
 // These return Plugin API JavaScript strings to pass to use_figma
 const fileScript = getFileScript({ pageNames: ['Components'] })
-const variablesScript = getLocalVariablesScript()  // only needed for autolayout linter
+const variablesScript = getLocalVariablesScript({ collectionFilter: 'spac(e|ing)' })  // only needed for autolayout linter
 ```
 
 Or call `use_figma` directly with the extraction script — it returns the full document tree in the same shape as the Figma REST API.
@@ -210,6 +210,10 @@ Detects auto-layout frames where padding or gap values are not bound to a spacin
 figma-lint-autolayout -f <file-key> -t <token>
 figma-lint-autolayout -f <file-key> -t <token> -b <branch-key>
 figma-lint-autolayout -f <file-key> -t <token> -p "Building blocks,Primitives"
+
+# Deduplicate issues into unique patterns with occurrence counts
+figma-lint-autolayout -f <file-key> -t <token> --summary
+figma-lint-autolayout -f <file-key> -t <token> --summary --format text
 ```
 
 **What it checks:**
@@ -228,6 +232,10 @@ Each unbound value is classified as one of:
 | `exception` | Negative value or other known exception |
 
 The summary includes counts for each status category.
+
+**Summary mode (`--summary`):**
+
+When `--summary` is set, identical issues are deduplicated by grouping on shared properties (component name, layer name, property, raw value, status). Each group becomes a single entry with an `occurrences` count, sorted highest-first. This collapses hundreds of individual issues into a manageable set of unique patterns — useful for agentic workflows and triage.
 
 ---
 

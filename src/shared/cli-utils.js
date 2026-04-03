@@ -8,6 +8,7 @@
  * @property {'json'|'text'} [format='json'] - Output format
  * @property {'all'|'components'} [scope='all'] - Scan scope for layer-based tools
  * @property {boolean} [stdin] - When true, read pre-fetched Figma data from stdin (no token needed)
+ * @property {boolean} [summary] - When true, deduplicate issues by grouping identical patterns
  */
 
 /**
@@ -72,6 +73,8 @@ export function parseCliArgs(argv, env = process.env) {
       args.scope = argv[++i];
     } else if (arg === "--stdin") {
       args.stdin = true;
+    } else if (arg === "--summary") {
+      args.summary = true;
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
     }
@@ -103,9 +106,10 @@ export function parseCliArgs(argv, env = process.env) {
   const excludePages = rawExclude ? rawExclude.split(",").map((p) => p.trim()).filter(Boolean) : [];
   const format = args.format === "text" ? "text" : "json";
   const scope = args.scope === "components" ? "components" : "all";
+  const summary = args.summary || false;
 
   /** @type {CliConfig} */
-  const config = { fileKey, pages, excludePages, format, scope, stdin };
+  const config = { fileKey, pages, excludePages, format, scope, stdin, summary };
 
   if (accessToken) {
     config.accessToken = accessToken;
@@ -160,4 +164,62 @@ export function formatReport(report, format) {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Deduplicates a report's issues by grouping identical patterns.
+ *
+ * Groups issues by a composite key of shared properties (excluding unique
+ * identifiers like `nodeId`, `variantName`, and `figmaUrl`). Each group
+ * becomes a single entry with an `occurrences` count.
+ *
+ * The original report's `summary` and `title` are preserved. The `issues`
+ * array is replaced with the deduplicated patterns, sorted by occurrence
+ * count (highest first).
+ *
+ * @param {Object} report - A report object with `title`, `summary`, and `issues`
+ * @param {string[]} [groupByKeys] - Property names to group by. If omitted, all
+ *   properties except `nodeId`, `variantName`, and `figmaUrl` are used.
+ * @returns {Object} A new report with deduplicated `issues` and a
+ *   `uniquePatterns` count added to `summary`
+ */
+export function summarizeReport(report, groupByKeys) {
+  if (!report.issues || report.issues.length === 0) {
+    return { ...report, summary: { ...report.summary, uniquePatterns: 0 } };
+  }
+
+  /** @type {string[]} */
+  const excludeKeys = ["nodeId", "variantName", "figmaUrl"];
+
+  const groups = new Map();
+
+  for (const issue of report.issues) {
+    const keyParts = [];
+    const groupEntry = {};
+
+    for (const [key, value] of Object.entries(issue)) {
+      if (excludeKeys.includes(key)) continue;
+      if (groupByKeys && !groupByKeys.includes(key)) continue;
+      keyParts.push(`${key}=${value}`);
+      groupEntry[key] = value;
+    }
+
+    const compositeKey = keyParts.join("|");
+
+    if (groups.has(compositeKey)) {
+      groups.get(compositeKey).occurrences++;
+    } else {
+      groups.set(compositeKey, { ...groupEntry, occurrences: 1 });
+    }
+  }
+
+  const patterns = Array.from(groups.values()).sort(
+    (a, b) => b.occurrences - a.occurrences,
+  );
+
+  return {
+    title: report.title,
+    summary: { ...report.summary, uniquePatterns: patterns.length },
+    issues: patterns,
+  };
 }

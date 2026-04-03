@@ -3,6 +3,7 @@ import {
   parseCliArgs,
   formatReport,
   getEffectiveFileKey,
+  summarizeReport,
 } from "./cli-utils.js";
 
 describe("parseCliArgs", () => {
@@ -266,5 +267,99 @@ describe("formatReport", () => {
     const clean = { title: "Clean", summary: {}, issues: [] };
     const output = formatReport(clean, "text");
     expect(output).toContain("No issues found");
+  });
+});
+
+describe("parseCliArgs --summary flag", () => {
+  it("defaults summary to false", () => {
+    const config = parseCliArgs(["-f", "f", "-t", "t"]);
+    expect(config.summary).toBe(false);
+  });
+
+  it("parses --summary flag", () => {
+    const config = parseCliArgs(["-f", "f", "-t", "t", "--summary"]);
+    expect(config.summary).toBe(true);
+  });
+});
+
+describe("summarizeReport", () => {
+  it("groups identical issues and counts occurrences", () => {
+    const report = {
+      title: "Test",
+      summary: { totalIssues: 4 },
+      issues: [
+        { componentName: "Button", layerName: "flex", property: "itemSpacing", rawValue: 10, status: "off-scale", nodeId: "1:1", variantName: "size=sm" },
+        { componentName: "Button", layerName: "flex", property: "itemSpacing", rawValue: 10, status: "off-scale", nodeId: "1:2", variantName: "size=md" },
+        { componentName: "Button", layerName: "flex", property: "itemSpacing", rawValue: 10, status: "off-scale", nodeId: "1:3", variantName: "size=lg" },
+        { componentName: "Card", layerName: "header", property: "paddingTop", rawValue: 8, status: "bindable", nodeId: "2:1" },
+      ],
+    };
+
+    const result = summarizeReport(report);
+
+    expect(result.summary.uniquePatterns).toBe(2);
+    expect(result.issues).toHaveLength(2);
+
+    const buttonPattern = result.issues.find((i) => i.componentName === "Button");
+    expect(buttonPattern.occurrences).toBe(3);
+    expect(buttonPattern).not.toHaveProperty("nodeId");
+    expect(buttonPattern).not.toHaveProperty("variantName");
+
+    const cardPattern = result.issues.find((i) => i.componentName === "Card");
+    expect(cardPattern.occurrences).toBe(1);
+  });
+
+  it("sorts patterns by occurrence count descending", () => {
+    const report = {
+      title: "Test",
+      summary: {},
+      issues: [
+        { componentName: "A", status: "off-scale", nodeId: "1:1" },
+        { componentName: "B", status: "off-scale", nodeId: "2:1" },
+        { componentName: "B", status: "off-scale", nodeId: "2:2" },
+        { componentName: "B", status: "off-scale", nodeId: "2:3" },
+      ],
+    };
+
+    const result = summarizeReport(report);
+    expect(result.issues[0].componentName).toBe("B");
+    expect(result.issues[0].occurrences).toBe(3);
+    expect(result.issues[1].componentName).toBe("A");
+    expect(result.issues[1].occurrences).toBe(1);
+  });
+
+  it("handles empty issues array", () => {
+    const report = { title: "Empty", summary: { totalIssues: 0 }, issues: [] };
+    const result = summarizeReport(report);
+    expect(result.summary.uniquePatterns).toBe(0);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("preserves original title and summary", () => {
+    const report = {
+      title: "Original Title",
+      summary: { totalComponents: 100, totalIssues: 5 },
+      issues: [
+        { componentName: "X", status: "off-scale", nodeId: "1:1" },
+      ],
+    };
+    const result = summarizeReport(report);
+    expect(result.title).toBe("Original Title");
+    expect(result.summary.totalComponents).toBe(100);
+    expect(result.summary.totalIssues).toBe(5);
+  });
+
+  it("excludes figmaUrl from grouping key", () => {
+    const report = {
+      title: "Test",
+      summary: {},
+      issues: [
+        { componentName: "A", status: "off-scale", nodeId: "1:1", figmaUrl: "https://figma.com/1" },
+        { componentName: "A", status: "off-scale", nodeId: "1:2", figmaUrl: "https://figma.com/2" },
+      ],
+    };
+    const result = summarizeReport(report);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].occurrences).toBe(2);
   });
 });

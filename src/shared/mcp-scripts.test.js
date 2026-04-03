@@ -45,9 +45,13 @@ describe('getFileScript', () => {
     expect(script).toContain('figma.variables.getVariableById')
   })
 
-  it('extracts componentPropertyDefinitions', () => {
+  it('extracts componentPropertyDefinitions with type guard', () => {
     const script = getFileScript()
     expect(script).toContain('componentPropertyDefinitions')
+    // Should guard against accessing on variant components
+    expect(script).toContain('COMPONENT_SET')
+    expect(script).toContain('COMPONENT')
+    expect(script).toContain('try')
   })
 
   it('extracts description field', () => {
@@ -91,5 +95,21 @@ describe('getLocalVariablesScript', () => {
   it('includes resolvedType for each variable', () => {
     const script = getLocalVariablesScript()
     expect(script).toContain('resolvedType')
+  })
+
+  it('sets COLLECTION_FILTER to null when no filter provided', () => {
+    const script = getLocalVariablesScript()
+    expect(script).toContain('const COLLECTION_FILTER = null')
+  })
+
+  it('injects collection filter pattern when provided', () => {
+    const script = getLocalVariablesScript({ collectionFilter: 'spac(e|ing)' })
+    expect(script).toContain('"spac(e|ing)"')
+    expect(script).toContain('RegExp')
+  })
+
+  it('skips non-matching collections when filter is set', () => {
+    const script = getLocalVariablesScript({ collectionFilter: 'space' })
+    expect(script).toContain('continue')
   })
 })
