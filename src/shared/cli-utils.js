@@ -40,7 +40,7 @@ export function getEffectiveFileKey(config) {
  *   --token, -t          Figma access token
  *   --branch, -b         Figma branch key (uses branch instead of main file)
  *   --pages, -p          Comma-separated page names to include
- *   --exclude-pages, -x  Comma-separated page names to exclude
+ *   --exclude-pages, -x  Comma-separated page names to exclude (or set FIGMA_EXCLUDE_PAGES)
  *   --format             Output format: 'json' or 'text' (default: 'text')
  *   --scope, -s          Scan scope: 'all' (default) or 'components'
  *   --help, -h           Show help
@@ -95,7 +95,8 @@ export function parseCliArgs(argv, env = process.env) {
   }
 
   const pages = args.pages ? args.pages.split(",").map((p) => p.trim()) : [];
-  const excludePages = args.excludePages ? args.excludePages.split(",").map((p) => p.trim()) : [];
+  const rawExclude = args.excludePages || env.FIGMA_EXCLUDE_PAGES || "";
+  const excludePages = rawExclude ? rawExclude.split(",").map((p) => p.trim()).filter(Boolean) : [];
   const format = args.format === "text" ? "text" : "json";
   const scope = args.scope === "components" ? "components" : "all";
 

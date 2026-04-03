@@ -144,8 +144,28 @@ describe("parseCliArgs", () => {
       expect(config.excludePages).toEqual([".labs"]);
     });
 
-    it("defaults excludePages to empty array", () => {
-      const config = parseCliArgs(["-f", "f", "-t", "t"]);
+    it("falls back to FIGMA_EXCLUDE_PAGES environment variable", () => {
+      const env = {
+        FIGMA_FILE_KEY: "f",
+        FIGMA_ACCESS_TOKEN: "t",
+        FIGMA_EXCLUDE_PAGES: ".explorations,.archive",
+      };
+      const config = parseCliArgs([], env);
+      expect(config.excludePages).toEqual([".explorations", ".archive"]);
+    });
+
+    it("CLI --exclude-pages flag overrides FIGMA_EXCLUDE_PAGES env var", () => {
+      const env = {
+        FIGMA_FILE_KEY: "f",
+        FIGMA_ACCESS_TOKEN: "t",
+        FIGMA_EXCLUDE_PAGES: ".explorations",
+      };
+      const config = parseCliArgs(["-x", ".labs"], env);
+      expect(config.excludePages).toEqual([".labs"]);
+    });
+
+    it("defaults excludePages to empty array when neither flag nor env var is set", () => {
+      const config = parseCliArgs(["-f", "f", "-t", "t"], {});
       expect(config.excludePages).toEqual([]);
     });
   });
