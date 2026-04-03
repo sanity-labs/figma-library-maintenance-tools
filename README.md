@@ -1,11 +1,12 @@
 # Figma Library Maintenance Tools
 
-A collection of single-purpose CLI tools that use Figma's REST API to audit and maintain Figma design libraries. Built for agentic workflows but works great for humans too.
+A collection of single-purpose CLI tools that audit and maintain Figma design libraries. Supports two data sources: the **Figma REST API** (with a personal access token) and the **Figma MCP** `use_figma` tool (no token needed). Built for agentic workflows but works great for humans too.
 
 ## Table of Contents
 
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Using with Figma MCP (no API token)](#using-with-figma-mcp-no-api-token)
 - [Tools](#tools)
   - [1. Generic Layer Name Linter](#1-generic-layer-name-linter)
   - [2. Duplicate Sibling Name Detector](#2-duplicate-sibling-name-detector)
@@ -76,8 +77,58 @@ Flags override environment variables:
 | `--pages` | `-p` | Comma-separated page names to include in the audit |
 | `--exclude-pages` | `-x` | Comma-separated page names to exclude (takes precedence over `--pages`) |
 | `--scope` | `-s` | Scan scope: `all` (default) or `components` (lint-layer-names only) |
+| `--stdin` | | Read pre-fetched Figma data from stdin instead of calling the REST API (no token needed) |
 | `--format` | | Output format: `json` (default) or `text` |
 | `--help` | `-h` | Show help |
+
+### Using with Figma MCP (no API token)
+
+When running inside Claude Desktop or any MCP-connected environment, you can extract file data via the Figma MCP `use_figma` tool and pipe it into the CLI tools — no Figma API token required.
+
+**How it works:**
+
+1. The MCP `use_figma` tool runs a Plugin API script inside the Figma file and returns the document tree as JSON.
+2. You pipe that JSON into any CLI tool with the `--stdin` flag.
+3. The tool runs its analysis on the pre-fetched data, identical to the REST API path.
+
+**Step 1 — Extract data via MCP:**
+
+Use the scripts from `src/shared/mcp-scripts.js`:
+
+```js
+import { getFileScript, getLocalVariablesScript } from 'figma-library-maintenance-tools/src/shared/mcp-scripts.js'
+
+// These return Plugin API JavaScript strings to pass to use_figma
+const fileScript = getFileScript({ pageNames: ['Components'] })
+const variablesScript = getLocalVariablesScript()  // only needed for autolayout linter
+```
+
+Or call `use_figma` directly with the extraction script — it returns the full document tree in the same shape as the Figma REST API.
+
+**Step 2 — Pipe into CLI tools:**
+
+```bash
+# Pipe saved MCP output into any tool (no --token needed)
+cat figma-data.json | figma-lint-names --stdin -f <file-key>
+
+# For the autolayout linter, stdin JSON must include both keys:
+# { "fileData": { "document": ... }, "variablesData": { "meta": ... } }
+cat figma-full.json | figma-lint-autolayout --stdin -f <file-key>
+```
+
+**Programmatic usage (skip REST API):**
+
+```js
+import { lintLayerNames } from 'figma-library-maintenance-tools/src/tools/lint-layer-names/index.js'
+
+// Pass fileData directly — no accessToken needed
+const report = await lintLayerNames({
+  fileKey: 'abc123',
+  fileData: mcpResult,  // the object returned by use_figma
+})
+```
+
+The `fileData` option is supported by all six tools. The autolayout linter additionally accepts `variablesData`.
 
 ---
 
@@ -343,7 +394,9 @@ figma-library-maintenance-tools/
     │   ├── tree-traversal.test.js
     │   ├── cli-utils.js             # CLI arg parsing, branch key resolution & report formatting
     │   ├── cli-utils.test.js
-    │   └── env.js                   # .env file loader (dotenv wrapper)
+    │   ├── env.js                   # .env file loader (dotenv wrapper)
+    │   ├── stdin.js                 # Reads pre-fetched Figma data from stdin
+    │   └── mcp-scripts.js           # Plugin API extraction scripts for Figma MCP use_figma
     └── tools/
         ├── lint-layer-names/        # Tool 1: Generic layer name linter
         │   ├── detect.js

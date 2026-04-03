@@ -10,10 +10,14 @@ import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
 
 /**
  * @typedef {Object} LintAutolayoutValuesOptions
- * @property {string} accessToken - Figma personal access token
+ * @property {string} [accessToken] - Figma personal access token (not required when fileData is provided)
  * @property {string} fileKey - Figma file key to inspect
  * @property {string} [branchKey] - Optional Figma branch key
  * @property {string[]} [pages] - Optional list of page names to restrict analysis to
+ * @property {Object} [fileData] - Pre-fetched Figma file data (from MCP use_figma or saved JSON).
+ *   When provided, the REST API is not called and accessToken is not required.
+ * @property {Object} [variablesData] - Pre-fetched local variables data (from MCP use_figma).
+ *   Required when using fileData — must match the shape of GET /v1/files/:key/variables/local.
  */
 
 /**
@@ -84,15 +88,28 @@ export async function lintAutolayoutValues({
   fileKey,
   branchKey,
   pages,
+  fileData,
+  variablesData,
 }) {
-  const client = createFigmaClient({ accessToken });
-
-  // Fetch file and local variables in parallel
   const effectiveKey = getEffectiveFileKey({ fileKey, branchKey });
-  const [file, variablesResponse] = await Promise.all([
-    client.getFile(effectiveKey),
-    client.getLocalVariables(effectiveKey),
-  ]);
+
+  let file, variablesResponse;
+  if (fileData) {
+    file = fileData;
+    variablesResponse = variablesData;
+    if (!variablesResponse) {
+      throw new Error(
+        'The autolayout linter requires variable data. When using pre-fetched fileData, ' +
+        'also provide variablesData (from the getLocalVariablesScript MCP script).',
+      );
+    }
+  } else {
+    const client = createFigmaClient({ accessToken });
+    [file, variablesResponse] = await Promise.all([
+      client.getFile(effectiveKey),
+      client.getLocalVariables(effectiveKey),
+    ]);
+  }
 
   const spaceScale = buildSpaceScale(variablesResponse);
 

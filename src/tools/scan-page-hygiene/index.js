@@ -5,10 +5,12 @@ import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
 
 /**
  * @typedef {Object} ScanPageHygieneOptions
- * @property {string} accessToken - Figma personal access token
+ * @property {string} [accessToken] - Figma personal access token (not required when fileData is provided)
  * @property {string} fileKey - Figma file key to analyse
  * @property {string} [branchKey] - Optional Figma branch key
  * @property {string[]} [pages] - Page names to restrict the scan to (empty or omitted = all pages)
+ * @property {Object} [fileData] - Pre-fetched Figma file data (from MCP use_figma or saved JSON).
+ *   When provided, the REST API is not called and accessToken is not required.
  */
 
 /**
@@ -65,10 +67,17 @@ export async function scanPageHygiene({
   fileKey,
   branchKey,
   pages,
+  fileData,
 }) {
-  const client = createFigmaClient({ accessToken });
   const effectiveKey = getEffectiveFileKey({ fileKey, branchKey });
-  const file = await client.getFile(effectiveKey, { depth: 2 });
+
+  let file;
+  if (fileData) {
+    file = fileData;
+  } else {
+    const client = createFigmaClient({ accessToken });
+    file = await client.getFile(effectiveKey, { depth: 2 });
+  }
 
   /** @type {import('./detect.js').HygieneIssue[]} */
   const allIssues = [];

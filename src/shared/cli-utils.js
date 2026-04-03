@@ -1,12 +1,13 @@
 /**
  * @typedef {Object} CliConfig
  * @property {string} fileKey - Figma file key
- * @property {string} accessToken - Figma access token
+ * @property {string} [accessToken] - Figma access token (not required when using --stdin)
  * @property {string} [branchKey] - Figma branch key (overrides fileKey for API calls when set)
  * @property {string[]} [pages] - Page names to include (empty = all)
  * @property {string[]} [excludePages] - Page names to exclude from the scan (empty = none excluded)
  * @property {'json'|'text'} [format='json'] - Output format
  * @property {'all'|'components'} [scope='all'] - Scan scope for layer-based tools
+ * @property {boolean} [stdin] - When true, read pre-fetched Figma data from stdin (no token needed)
  */
 
 /**
@@ -69,6 +70,8 @@ export function parseCliArgs(argv, env = process.env) {
       args.format = argv[++i];
     } else if (arg === "--scope" || arg === "-s") {
       args.scope = argv[++i];
+    } else if (arg === "--stdin") {
+      args.stdin = true;
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
     }
@@ -81,6 +84,7 @@ export function parseCliArgs(argv, env = process.env) {
   const fileKey = args.fileKey || env.FIGMA_FILE_KEY;
   const accessToken = args.accessToken || env.FIGMA_ACCESS_TOKEN;
   const branchKey = args.branchKey || env.FIGMA_BRANCH_KEY || undefined;
+  const stdin = args.stdin || false;
 
   if (!fileKey) {
     throw new Error(
@@ -88,9 +92,9 @@ export function parseCliArgs(argv, env = process.env) {
     );
   }
 
-  if (!accessToken) {
+  if (!stdin && !accessToken) {
     throw new Error(
-      "Access token is required. Use --token or set FIGMA_ACCESS_TOKEN environment variable.",
+      "Access token is required. Use --token or set FIGMA_ACCESS_TOKEN environment variable. Alternatively, use --stdin to pipe pre-fetched data.",
     );
   }
 
@@ -101,7 +105,11 @@ export function parseCliArgs(argv, env = process.env) {
   const scope = args.scope === "components" ? "components" : "all";
 
   /** @type {CliConfig} */
-  const config = { fileKey, accessToken, pages, excludePages, format, scope };
+  const config = { fileKey, pages, excludePages, format, scope, stdin };
+
+  if (accessToken) {
+    config.accessToken = accessToken;
+  }
 
   if (branchKey) {
     config.branchKey = branchKey;

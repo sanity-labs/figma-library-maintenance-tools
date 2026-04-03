@@ -6,7 +6,7 @@ import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
 
 /**
  * @typedef {Object} LintLayerNamesOptions
- * @property {string} accessToken - Figma personal access token
+ * @property {string} [accessToken] - Figma personal access token (not required when fileData is provided)
  * @property {string} fileKey - Figma file key to analyse
  * @property {string} [branchKey] - Optional Figma branch key
  * @property {string[]} [pages] - Page names to restrict the scan to (empty or omitted = all pages)
@@ -18,6 +18,9 @@ import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
  *     the page name as context.
  *   - `'components'` — only scans layers inside component sets and standalone
  *     components (the original behaviour).
+ * @property {Object} [fileData] - Pre-fetched Figma file data (from MCP use_figma or saved JSON).
+ *   When provided, the REST API is not called and accessToken is not required.
+ *   Must match the shape returned by GET /v1/files/:key (i.e. have a `document.children` array).
  */
 
 /**
@@ -129,10 +132,17 @@ export async function lintLayerNames({
   pages,
   excludePages,
   scope = "all",
+  fileData,
 }) {
-  const client = createFigmaClient({ accessToken });
   const effectiveKey = getEffectiveFileKey({ fileKey, branchKey });
-  const file = await client.getFile(effectiveKey);
+
+  let file;
+  if (fileData) {
+    file = fileData;
+  } else {
+    const client = createFigmaClient({ accessToken });
+    file = await client.getFile(effectiveKey);
+  }
 
   /** @type {import('./detect.js').GenericNameIssue[]} */
   const issues = [];
