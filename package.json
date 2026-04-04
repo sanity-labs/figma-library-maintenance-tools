@@ -14,7 +14,8 @@
     "figma-scan-pages": "./src/tools/scan-page-hygiene/cli.js",
     "figma-lint-variants": "./src/tools/lint-variants/cli.js",
     "figma-lint-casing": "./src/tools/lint-casing/cli.js",
-    "figma-lint-canvas": "./src/tools/lint-canvas/cli.js"
+    "figma-lint-canvas": "./src/tools/lint-canvas/cli.js",
+    "figma-run-script": "./src/tools/run-script/cli.js"
   },
   "scripts": {
     "test": "vitest run",

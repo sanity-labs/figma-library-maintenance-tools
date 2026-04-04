@@ -32,6 +32,7 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [10. Layer Casing Linter](#10-layer-casing-linter)
   - [11. Canvas Hygiene Linter](#11-canvas-hygiene-linter)
 - [Programmatic Usage](#programmatic-usage)
+- [Custom Scripts](#custom-scripts)
 - [Exit Codes](#exit-codes)
 - [Development](#development)
 
@@ -448,6 +449,75 @@ import { buildFigmaUrl, enrichIssuesWithUrls } from 'figma-library-maintenance-t
 
 ---
 
+## Custom Scripts
+
+The built-in tools cover common auditing tasks, but sometimes you need to do something specific: create a node, rename a batch of layers, extract a custom report, or run a one-off fix. Custom scripts let you write arbitrary Figma Plugin API code and run it via the MCP `use_figma` tool.
+
+### How it works
+
+A custom script is a plain `.js` file containing Figma Plugin API code. The code runs inside Figma's Plugin API sandbox — the same environment that Figma plugins use. It has access to the `figma` global and can read, create, modify, and delete any object in the file.
+
+```sh
+# Output a script's contents (for piping to an agent or use_figma)
+figma-run-script examples/add-rectangle.js
+```
+
+In an agentic workflow, the agent reads the script output and passes it to the Figma MCP `use_figma` tool as the `code` parameter. The script executes inside the open Figma file and the result is returned.
+
+### Writing a script
+
+Scripts must follow these rules:
+
+1. **Self-contained** — no `import`, `require`, or `export`. Everything must be inline. The Plugin API sandbox has no module system.
+2. **Synchronous access to `figma`** — the `figma` global is available. Use it to access pages, nodes, variables, styles, and everything else in the Plugin API.
+3. **Return results with `return`** — the last `return` statement sends data back through MCP. Return a plain object or array — it will be serialized as JSON.
+4. **No network access** — no `fetch`, `XMLHttpRequest`, or any external communication. The sandbox is isolated.
+5. **No `console.log`** — output goes nowhere. Use `return` for all results.
+
+### Minimal example
+
+```js
+// examples/add-rectangle.js — creates a rectangle on the current page
+
+const page = figma.currentPage
+
+const rect = figma.createRectangle()
+rect.name = 'example-rectangle'
+rect.resize(200, 100)
+rect.x = 0
+rect.y = 0
+rect.fills = [{ type: 'SOLID', color: { r: 0.22, g: 0.27, b: 0.36 } }]
+rect.cornerRadius = 8
+
+page.appendChild(rect)
+
+return { nodeId: rect.id, name: rect.name, page: page.name }
+```
+
+When run via `use_figma`, this creates a 200×100 dark rectangle on the current page and returns its node ID.
+
+### More examples
+
+The `examples/` directory contains working scripts:
+
+| Script | What it does |
+|--------|-------------|
+| `add-rectangle.js` | Creates a rectangle and returns its node ID |
+| `list-pages.js` | Lists all pages with child counts (read-only) |
+| `rename-generic-layers.js` | Renames `Frame 1`, `Group 2`, etc. on the current page |
+
+### Tips
+
+**Start read-only.** Test with scripts that inspect without modifying. Add writes once you're confident the logic is correct.
+
+**Return structured data.** Return objects with named fields, not bare strings. `{ nodeId: rect.id, name: rect.name }` is more useful downstream than `rect.id`.
+
+**Keep scripts small.** The Plugin API has execution time limits. If a script needs to process thousands of nodes, batch the work or limit scope with page filters.
+
+**Use `var` instead of `const`/`let` in loops** when targeting the Plugin API sandbox — some execution environments handle block scoping differently than Node.js.
+
+---
+
 ## Exit Codes
 
 All tools use consistent exit codes:
@@ -481,6 +551,10 @@ figma-library-maintenance-tools/
 ├── package.json
 ├── vitest.config.js
 ├── .env.example
+├── examples/                         # Custom Plugin API scripts
+│   ├── add-rectangle.js
+│   ├── list-pages.js
+│   └── rename-generic-layers.js
 └── src/
     ├── shared/
     │   ├── figma-client.js          # Figma REST API client
@@ -501,7 +575,8 @@ figma-library-maintenance-tools/
         ├── scan-page-hygiene/       # Page hygiene scanner
         ├── lint-variants/           # Variant linter
         ├── lint-casing/             # Layer casing linter
-        └── lint-canvas/             # Canvas hygiene linter
+        ├── lint-canvas/             # Canvas hygiene linter
+        └── run-script/              # Custom script runner
 ```
 
 Each tool directory contains:
