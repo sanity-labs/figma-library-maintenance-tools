@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyTopLevelItem, scanPage } from './detect.js'
+import { classifyTopLevelItem, scanPage, auditSectionNaming } from './detect.js'
 
 describe('classifyTopLevelItem', () => {
   it('classifies COMPONENT_SET as expected', () => {
@@ -194,5 +194,63 @@ describe('scanPage', () => {
     const result = scanPage(page)
 
     expect(result.unexpected[0].classification).toBe('unexpected')
+  })
+})
+
+describe('auditSectionNaming', () => {
+  it('flags sections that do not reference child component names', () => {
+    const issue = auditSectionNaming({
+      name: 'Controls', id: '1:1',
+      children: [
+        { name: 'Checkbox', type: 'COMPONENT_SET' },
+        { name: 'Switch', type: 'COMPONENT_SET' },
+        { name: 'Radio', type: 'COMPONENT_SET' },
+      ],
+    }, 'Components')
+    expect(issue).not.toBeNull()
+    expect(issue.issueType).toBe('section-name-mismatch')
+    expect(issue.childComponentNames).toEqual(['Checkbox', 'Switch', 'Radio'])
+  })
+
+  it('passes when section name contains a child component name', () => {
+    expect(auditSectionNaming({
+      name: 'Checkbox, Switch, and Radio', id: '2:1',
+      children: [
+        { name: 'Checkbox', type: 'COMPONENT_SET' },
+        { name: 'Switch', type: 'COMPONENT_SET' },
+      ],
+    }, 'Components')).toBeNull()
+  })
+
+  it('passes for single-component sections named after the component', () => {
+    expect(auditSectionNaming({
+      name: 'Button', id: '3:1',
+      children: [{ name: 'Button', type: 'COMPONENT_SET' }],
+    }, 'Components')).toBeNull()
+  })
+
+  it('matches case-insensitively', () => {
+    expect(auditSectionNaming({
+      name: 'avatar and avatarstack', id: '4:1',
+      children: [{ name: 'Avatar', type: 'COMPONENT_SET' }, { name: 'AvatarStack', type: 'COMPONENT_SET' }],
+    }, 'Components')).toBeNull()
+  })
+
+  it('returns null for empty sections', () => {
+    expect(auditSectionNaming({ name: 'Empty', id: '5:1', children: [] }, 'Components')).toBeNull()
+  })
+
+  it('ignores non-component children', () => {
+    expect(auditSectionNaming({
+      name: 'Misc', id: '6:1',
+      children: [{ name: 'helper', type: 'FRAME' }, { name: 'note', type: 'TEXT' }],
+    }, 'Components')).toBeNull()
+  })
+
+  it('passes when section name partially matches', () => {
+    expect(auditSectionNaming({
+      name: 'Hotkeys and KBD', id: '7:1',
+      children: [{ name: 'Hotkeys', type: 'COMPONENT' }, { name: 'KBD', type: 'COMPONENT_SET' }],
+    }, 'Components')).toBeNull()
   })
 })

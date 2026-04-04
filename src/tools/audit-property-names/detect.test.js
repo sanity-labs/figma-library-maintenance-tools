@@ -5,6 +5,8 @@ import {
   isCapitalized,
   categorizeBooleanPrefix,
   auditProperties,
+  detectBooleanVariantConflicts,
+  detectDependencyPrefixOrder,
 } from './detect.js'
 
 // ---------------------------------------------------------------------------
@@ -518,5 +520,86 @@ describe('auditProperties', () => {
     expect(toggleSummary.withCount).toBe(1)
     expect(toggleSummary.showProperties).toEqual(['show icon', 'show label'])
     expect(toggleSummary.withProperties).toEqual(['with badge'])
+  })
+})
+
+describe('detectBooleanVariantConflicts', () => {
+  it('detects when boolean name matches a variant value', () => {
+    const issues = detectBooleanVariantConflicts([{
+      name: 'TextInput', id: '1:1',
+      componentPropertyDefinitions: {
+        'focused#111': { type: 'BOOLEAN' },
+        state: { type: 'VARIANT', variantOptions: ['enabled', 'focused', 'disabled'] },
+      },
+    }])
+    expect(issues).toHaveLength(1)
+    expect(issues[0].booleanName).toBe('focused')
+    expect(issues[0].variantProperty).toBe('state')
+    expect(issues[0].violationType).toBe('boolean-variant-conflict')
+  })
+
+  it('returns empty when no conflicts', () => {
+    expect(detectBooleanVariantConflicts([{
+      name: 'Button', id: '2:1',
+      componentPropertyDefinitions: {
+        'show icon#222': { type: 'BOOLEAN' },
+        state: { type: 'VARIANT', variantOptions: ['enabled', 'hovered'] },
+      },
+    }])).toHaveLength(0)
+  })
+
+  it('handles case-insensitive matching', () => {
+    expect(detectBooleanVariantConflicts([{
+      name: 'Input', id: '3:1',
+      componentPropertyDefinitions: {
+        'Focused#333': { type: 'BOOLEAN' },
+        state: { type: 'VARIANT', variantOptions: ['enabled', 'focused'] },
+      },
+    }])).toHaveLength(1)
+  })
+
+  it('skips components without definitions', () => {
+    expect(detectBooleanVariantConflicts([{ name: 'Empty', id: '4:1' }])).toHaveLength(0)
+  })
+})
+
+describe('detectDependencyPrefixOrder', () => {
+  it('detects when ↳ property appears before its parent toggle', () => {
+    const issues = detectDependencyPrefixOrder([{
+      name: 'Badge', id: '1:1',
+      componentPropertyDefinitions: {
+        'show icon#111': { type: 'BOOLEAN' },
+        '↳ text#222': { type: 'TEXT' },
+        '↳ icon#333': { type: 'INSTANCE_SWAP' },
+        'show text#444': { type: 'BOOLEAN' },
+      },
+    }])
+    expect(issues).toHaveLength(1)
+    expect(issues[0].dependentProperty).toBe('↳ text')
+    expect(issues[0].expectedParent).toBe('show text')
+    expect(issues[0].violationType).toBe('dependency-prefix-order')
+  })
+
+  it('returns empty when all ↳ properties follow their parent', () => {
+    expect(detectDependencyPrefixOrder([{
+      name: 'Button', id: '2:1',
+      componentPropertyDefinitions: {
+        'show icon#111': { type: 'BOOLEAN' },
+        '↳ icon#222': { type: 'INSTANCE_SWAP' },
+        'show text#333': { type: 'BOOLEAN' },
+        '↳ text#444': { type: 'TEXT' },
+      },
+    }])).toHaveLength(0)
+  })
+
+  it('skips components without definitions', () => {
+    expect(detectDependencyPrefixOrder([{ name: 'Empty', id: '3:1' }])).toHaveLength(0)
+  })
+
+  it('ignores ↳ properties with no matching parent anywhere', () => {
+    expect(detectDependencyPrefixOrder([{
+      name: 'Custom', id: '4:1',
+      componentPropertyDefinitions: { '↳ icon#111': { type: 'INSTANCE_SWAP' } },
+    }])).toHaveLength(0)
   })
 })

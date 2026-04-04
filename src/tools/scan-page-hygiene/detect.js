@@ -97,3 +97,45 @@ export function scanPage(pageNode) {
 
   return { pageName, expected, unexpected }
 }
+
+/**
+ * @typedef {Object} SectionNamingIssue
+ * @property {string} pageName
+ * @property {string} sectionName
+ * @property {string[]} childComponentNames
+ * @property {string} nodeId
+ * @property {'section-name-mismatch'} issueType
+ * @property {string} message
+ */
+
+/**
+ * Checks whether a Section name references its child component names.
+ *
+ * A Section passes if its name contains at least one child component name
+ * (case-insensitive substring match). Sections with no component children
+ * are skipped.
+ *
+ * @param {{ name: string, id: string, children?: { name: string, type: string }[] }} sectionNode
+ * @param {string} pageName
+ * @returns {SectionNamingIssue | null}
+ */
+export function auditSectionNaming(sectionNode, pageName) {
+  const children = sectionNode.children || []
+  const componentNames = children
+    .filter((c) => c.type === 'COMPONENT_SET' || c.type === 'COMPONENT')
+    .map((c) => c.name)
+
+  if (componentNames.length === 0) return null
+
+  const sectionNameLower = sectionNode.name.toLowerCase()
+  const hasMatch = componentNames.some((cn) => sectionNameLower.includes(cn.toLowerCase()))
+
+  if (hasMatch) return null
+
+  return {
+    pageName, sectionName: sectionNode.name,
+    childComponentNames: componentNames, nodeId: sectionNode.id,
+    issueType: 'section-name-mismatch',
+    message: `Section "${sectionNode.name}" on "${pageName}" does not reference any of its child components (${componentNames.join(', ')}). Section names should list the components they contain.`,
+  }
+}

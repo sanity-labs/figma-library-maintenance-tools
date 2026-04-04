@@ -11,7 +11,10 @@
     "figma-lint-text-styles": "./src/tools/lint-text-styles/cli.js",
     "figma-check-descriptions": "./src/tools/check-descriptions/cli.js",
     "figma-audit-properties": "./src/tools/audit-property-names/cli.js",
-    "figma-scan-pages": "./src/tools/scan-page-hygiene/cli.js"
+    "figma-scan-pages": "./src/tools/scan-page-hygiene/cli.js",
+    "figma-lint-variants": "./src/tools/lint-variants/cli.js",
+    "figma-lint-casing": "./src/tools/lint-casing/cli.js",
+    "figma-lint-canvas": "./src/tools/lint-canvas/cli.js"
   },
   "scripts": {
     "test": "vitest run",

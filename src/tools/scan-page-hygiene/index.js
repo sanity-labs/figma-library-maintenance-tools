@@ -1,6 +1,6 @@
 import { createFigmaClient } from "../../shared/figma-client.js";
 import { getEffectiveFileKey } from "../../shared/cli-utils.js";
-import { scanPage } from "./detect.js";
+import { scanPage, auditSectionNaming } from "./detect.js";
 import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
 
 /**
@@ -102,9 +102,20 @@ export async function scanPageHygiene({
     unexpectedItems += result.unexpected.length;
 
     allIssues.push(...result.unexpected);
+
+    const children = page.children || [];
+    for (const child of children) {
+      if (child.type === 'SECTION') {
+        const sectionIssue = auditSectionNaming(child, page.name);
+        if (sectionIssue) allIssues.push(sectionIssue);
+      }
+    }
   }
 
   const enrichedIssues = enrichIssuesWithUrls(allIssues, effectiveKey);
+  const sectionNamingIssues = enrichedIssues.filter(
+    (i) => i.issueType === 'section-name-mismatch'
+  ).length;
 
   return {
     title: "Page Hygiene Report",
@@ -113,6 +124,7 @@ export async function scanPageHygiene({
       totalItems,
       expectedItems,
       unexpectedItems,
+      sectionNamingIssues,
     },
     issues: enrichedIssues,
   };

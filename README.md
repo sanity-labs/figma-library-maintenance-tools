@@ -28,6 +28,9 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [6. Component Description Coverage Checker](#6-component-description-coverage-checker)
   - [7. Property Naming Convention Auditor](#7-property-naming-convention-auditor)
   - [8. Page Hygiene Scanner](#8-page-hygiene-scanner)
+  - [9. Variant Linter](#9-variant-linter)
+  - [10. Layer Casing Linter](#10-layer-casing-linter)
+  - [11. Canvas Hygiene Linter](#11-canvas-hygiene-linter)
 - [Programmatic Usage](#programmatic-usage)
 - [Exit Codes](#exit-codes)
 - [Development](#development)
@@ -292,14 +295,16 @@ figma-audit-properties --stdin < data.json
 | Capitalized names | `Size` instead of `size` | First letter must be lowercase |
 | Default names | `Property 1` | Must be renamed from Figma's default |
 | Toggle inconsistency | `show icon` + `with avatar` in same library | Pick one boolean prefix convention |
+| Boolean/variant conflict | `focused` boolean + `state` variant with `focused` value | Two controls for the same concept |
+| Dependency prefix order | `↳ text` appearing before `show text` | `↳` prefixed properties must follow their parent toggle |
 
-**What it reports:** Each violation with component name, property name, type, and message. Also includes a toggle convention summary.
+**What it reports:** Each violation with component name, property name, type, and message. Boolean/variant conflicts show both the boolean name and the conflicting variant property. Dependency prefix issues show the dependent property and its expected parent. Also includes a toggle convention summary.
 
 ---
 
 ### 8. Page Hygiene Scanner
 
-Detects non-component items at the top level of published pages — stray instances, loose frames, groups, etc.
+Detects non-component items at the top level of published pages — stray instances, loose frames, groups, etc. Also checks Section naming conventions.
 
 ```sh
 figma-scan-pages
@@ -307,7 +312,67 @@ figma-scan-pages -p "Components,Primitives,Icons"
 figma-scan-pages --stdin < data.json
 ```
 
-**What it reports:** page name, item name, item type, node ID. Expected types: `COMPONENT_SET`, `COMPONENT`, `SECTION`. Everything else is flagged as unexpected.
+**What it reports:** page name, item name, item type, node ID. Expected types: `COMPONENT_SET`, `COMPONENT`, `SECTION`. Everything else is flagged as unexpected. Also flags Sections whose names don't reference any of their child component names (e.g., a Section named "Controls" containing Checkbox, Switch, and Radio).
+
+---
+
+### 9. Variant Linter
+
+Detects variant-related issues in component sets: single-value variant properties (dead-end dropdowns), duplicate variant name strings (which break API access), and missing combinations in the variant matrix.
+
+```sh
+figma-lint-variants
+figma-lint-variants -p "Components"
+figma-lint-variants --matrix                    # include coverage gap analysis
+figma-lint-variants -x ".labs,.explorations"
+figma-lint-variants --stdin < data.json
+```
+
+**Issue types:**
+
+| Type | Description |
+|------|-------------|
+| `single-value-variant` | A variant property with only one selectable option |
+| `duplicate-variant-name` | Identical variant name strings — breaks `componentPropertyDefinitions` API |
+| `coverage-gap` | Missing combination in the variant matrix (only with `--matrix`) |
+
+**What it reports:** Component name, property name, single value (single-value issues). Duplicate name string, count, node IDs (duplicate issues). Missing variant name string (coverage gaps). Summary with counts by type.
+
+---
+
+### 10. Layer Casing Linter
+
+Detects layer names inside published components that violate the lowercase naming convention. By default checks only `TEXT` layers; use `--all-layers` for all layer types.
+
+```sh
+figma-lint-casing
+figma-lint-casing -p "Components"
+figma-lint-casing --all-layers                  # check FRAME, GROUP, etc. too
+figma-lint-casing --stdin < data.json
+```
+
+**What it checks:** TEXT layer names inside component sets and standalone components. Instance layers (`INSTANCE` type) are exempt — they conventionally use PascalCase component names.
+
+**What it reports:** Component name, variant name, current layer name, expected (lowercased) name, node ID.
+
+---
+
+### 11. Canvas Hygiene Linter
+
+Detects canvas-level hygiene issues: pages whose content doesn't start at (0, 0), and page names with leading or trailing whitespace.
+
+```sh
+figma-lint-canvas
+figma-lint-canvas -p "Icons,.internal,.explorations"
+figma-lint-canvas --stdin < data.json
+```
+
+**Issue types:**
+
+| Type | Description |
+|------|-------------|
+| `origin-drift` | Page content does not start at canvas origin (0, 0) |
+| `page-name-whitespace` | Page name has invisible leading or trailing spaces |
 
 ---
 
@@ -324,6 +389,9 @@ import { lintTextStyles } from 'figma-library-maintenance-tools/src/tools/lint-t
 import { checkDescriptionCoverage } from 'figma-library-maintenance-tools/src/tools/check-descriptions/index.js'
 import { auditPropertyNames } from 'figma-library-maintenance-tools/src/tools/audit-property-names/index.js'
 import { scanPageHygiene } from 'figma-library-maintenance-tools/src/tools/scan-page-hygiene/index.js'
+import { lintVariants } from 'figma-library-maintenance-tools/src/tools/lint-variants/index.js'
+import { lintCasing } from 'figma-library-maintenance-tools/src/tools/lint-casing/index.js'
+import { lintCanvas } from 'figma-library-maintenance-tools/src/tools/lint-canvas/index.js'
 
 // Via REST API
 const report = await lintLayerNames({
@@ -430,7 +498,10 @@ figma-library-maintenance-tools/
         ├── lint-text-styles/        # Hardcoded text style detector
         ├── check-descriptions/      # Component description coverage checker
         ├── audit-property-names/    # Property naming convention auditor
-        └── scan-page-hygiene/       # Page hygiene scanner
+        ├── scan-page-hygiene/       # Page hygiene scanner
+        ├── lint-variants/           # Variant linter
+        ├── lint-casing/             # Layer casing linter
+        └── lint-canvas/             # Canvas hygiene linter
 ```
 
 Each tool directory contains:

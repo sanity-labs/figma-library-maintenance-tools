@@ -269,3 +269,123 @@ export function auditProperties(components) {
 
   return { issues, toggleSummary }
 }
+
+/**
+ * @typedef {Object} PropertyConflictIssue
+ * @property {string} componentName
+ * @property {string} nodeId
+ * @property {string} booleanName - The boolean property name
+ * @property {string} variantProperty - The variant property containing a matching value
+ * @property {string} conflictingValue - The variant value that matches the boolean name
+ * @property {'boolean-variant-conflict'} violationType
+ * @property {string} message
+ */
+
+/**
+ * @typedef {Object} DependencyOrderIssue
+ * @property {string} componentName
+ * @property {string} nodeId
+ * @property {string} dependentProperty - The property with `↳` prefix
+ * @property {string} expectedParent - The expected parent toggle property
+ * @property {'dependency-prefix-order'} violationType
+ * @property {string} message
+ */
+
+/**
+ * Detects when a boolean property name matches a value in one of
+ * the component's variant properties — two controls for the same concept.
+ *
+ * @param {ComponentInput[]} components
+ * @returns {PropertyConflictIssue[]}
+ */
+export function detectBooleanVariantConflicts(components) {
+  /** @type {PropertyConflictIssue[]} */
+  const issues = []
+
+  for (const component of components) {
+    const definitions = component.componentPropertyDefinitions
+    if (!definitions) continue
+
+    const entries = Object.entries(definitions)
+    const booleanNames = []
+    const variantProps = []
+
+    for (const [rawKey, definition] of entries) {
+      const name = cleanPropertyName(rawKey)
+      if (definition.type === 'BOOLEAN') booleanNames.push(name)
+      else if (definition.type === 'VARIANT' && definition.variantOptions) {
+        variantProps.push({ name, values: definition.variantOptions })
+      }
+    }
+
+    for (const boolName of booleanNames) {
+      const normalizedBool = boolName.toLowerCase()
+      for (const variant of variantProps) {
+        const matchingValue = variant.values.find((v) => v.toLowerCase() === normalizedBool)
+        if (matchingValue) {
+          issues.push({
+            componentName: component.name, nodeId: component.id,
+            booleanName: boolName, variantProperty: variant.name,
+            conflictingValue: matchingValue,
+            violationType: 'boolean-variant-conflict',
+            message: `Boolean property "${boolName}" in "${component.name}" conflicts with variant "${variant.name}" which includes value "${matchingValue}". Two controls for the same concept.`,
+          })
+        }
+      }
+    }
+  }
+
+  return issues
+}
+
+/**
+ * Detects when a `↳` prefixed property appears before its parent
+ * toggle in the property definitions — making the dependency hierarchy misleading.
+ *
+ * @param {ComponentInput[]} components
+ * @returns {DependencyOrderIssue[]}
+ */
+export function detectDependencyPrefixOrder(components) {
+  /** @type {DependencyOrderIssue[]} */
+  const issues = []
+
+  for (const component of components) {
+    const definitions = component.componentPropertyDefinitions
+    if (!definitions) continue
+
+    const keys = Object.keys(definitions)
+    const seenToggleElements = new Set()
+
+    for (let i = 0; i < keys.length; i++) {
+      const cleanName = cleanPropertyName(keys[i])
+      const definition = definitions[keys[i]]
+
+      if (definition.type === 'BOOLEAN' && cleanName.toLowerCase().startsWith('show ')) {
+        seenToggleElements.add(cleanName.slice('show '.length).toLowerCase())
+      }
+
+      if (cleanName.startsWith('↳')) {
+        const dependentElement = cleanName.slice('↳'.length).trim().toLowerCase()
+        const expectedParent = `show ${dependentElement}`
+
+        if (!seenToggleElements.has(dependentElement)) {
+          const hasParentLater = keys.some((k, j) => {
+            if (j <= i) return false
+            return cleanPropertyName(k).toLowerCase() === expectedParent
+          })
+
+          if (hasParentLater) {
+            issues.push({
+              componentName: component.name, nodeId: component.id,
+              dependentProperty: cleanName, expectedParent,
+              violationType: 'dependency-prefix-order',
+              message: `Property "${cleanName}" in "${component.name}" uses the ↳ dependency prefix but its parent toggle "${expectedParent}" appears after it. Reorder so the parent comes first.`,
+            })
+          }
+        }
+      }
+    }
+  }
+
+  return issues
+}
