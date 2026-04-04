@@ -3,6 +3,7 @@ import { loadEnv } from '../../shared/env.js'
 import { parseCliArgs, formatReport } from '../../shared/cli-utils.js'
 import { readStdin } from '../../shared/stdin.js'
 import { lintCanvas } from './index.js'
+import { getCanvasLintScript } from './script.js'
 
 loadEnv()
 
@@ -18,14 +19,22 @@ Options:
   -p, --pages <names>          Comma-separated page names to include
   -x, --exclude-pages <names>  Comma-separated page names to exclude
       --stdin                  Read pre-fetched Figma data from stdin
+      --emit-script            Output a Plugin API script for use_figma instead of running analysis
       --format <fmt>           Output format: json (default) or text
   -h, --help                   Show this help message
 `
 
 async function main() {
   try {
-    const config = parseCliArgs(process.argv.slice(2))
+    const rawArgs = process.argv.slice(2)
+    const config = parseCliArgs(rawArgs)
     if (config.help) { console.log(HELP_TEXT); process.exit(0) }
+
+    if (rawArgs.includes('--emit-script')) {
+      console.log(getCanvasLintScript({ pages: config.pages, excludePages: config.excludePages }))
+      process.exit(0)
+    }
+
     if (config.stdin) { const { fileData } = await readStdin(); config.fileData = fileData }
     const report = await lintCanvas(config)
     console.log(formatReport(report, config.format))

@@ -3,6 +3,7 @@ import { loadEnv } from '../../shared/env.js'
 import { parseCliArgs, formatReport } from '../../shared/cli-utils.js'
 import { readStdin } from '../../shared/stdin.js'
 import { lintVariants } from './index.js'
+import { getVariantLintScript } from './script.js'
 
 loadEnv()
 
@@ -19,6 +20,7 @@ Options:
   -x, --exclude-pages <names>  Comma-separated page names to exclude
       --matrix                 Include coverage gap analysis
       --stdin                  Read pre-fetched Figma data from stdin
+      --emit-script            Output a Plugin API script for use_figma instead of running analysis
       --format <fmt>           Output format: json (default) or text
   -h, --help                   Show this help message
 `
@@ -28,8 +30,16 @@ async function main() {
     const rawArgs = process.argv.slice(2)
     const config = parseCliArgs(rawArgs)
     if (config.help) { console.log(HELP_TEXT); process.exit(0) }
+
+    const includeGaps = rawArgs.includes('--matrix')
+
+    if (rawArgs.includes('--emit-script')) {
+      console.log(getVariantLintScript({ pages: config.pages, excludePages: config.excludePages, includeGaps }))
+      process.exit(0)
+    }
+
     if (config.stdin) { const { fileData } = await readStdin(); config.fileData = fileData }
-    const report = await lintVariants({ ...config, includeGaps: rawArgs.includes('--matrix') })
+    const report = await lintVariants({ ...config, includeGaps })
     console.log(formatReport(report, config.format))
     process.exit(report.issues.length > 0 ? 1 : 0)
   } catch (err) { console.error(`Error: ${err.message}`); process.exit(2) }
