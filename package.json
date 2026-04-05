@@ -18,7 +18,8 @@
     "figma-run-script": "./src/tools/run-script/cli.js",
     "figma-audit-a11y-target-sizes": "./src/tools/audit-a11y-target-sizes/cli.js",
     "figma-audit-a11y-states": "./src/tools/audit-a11y-missing-states/cli.js",
-    "figma-audit-a11y-descriptions": "./src/tools/audit-a11y-descriptions/cli.js"
+    "figma-audit-a11y-descriptions": "./src/tools/audit-a11y-descriptions/cli.js",
+    "figma-lint-layer-order": "./src/tools/lint-layer-order/cli.js"
   },
   "scripts": {
     "test": "vitest run",

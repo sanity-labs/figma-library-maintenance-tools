@@ -18,26 +18,39 @@ import { traverseNodes } from "../../shared/tree-traversal.js";
  * Matches names like "Frame 1", "Group 2", "Rectangle 3", "Vector",
  * "Ellipse 1", "Line 5", "Boolean 1", "Image", etc.
  *
- * The number suffix is optional so bare type names like "Vector" are caught.
+ * Also matches suffixed variants like "Frame 1-wrapper" and
+ * "Group 3-content" — these are still generic names that were
+ * auto-assigned and then appended to, not intentionally named.
+ *
+ * The bare type name ("Vector", "Image") is caught via the end-of-string
+ * branch. The suffixed form ("Frame 1-wrapper") is caught because the
+ * regex matches the leading "Frame 1" without requiring end-of-string.
+ *
+ * Does NOT match names that merely start with a type word but aren't
+ * generic (e.g. "Framework", "Grouping") because those lack the
+ * required space+digit or end-of-string after the type name.
  *
  * @type {RegExp}
  */
 const GENERIC_NAME_PATTERN =
-  /^(Frame|Group|Rectangle|Vector|Ellipse|Line|Polygon|Star|Boolean|Image)\s*\d*$/;
+  /^(Frame|Group|Rectangle|Vector|Ellipse|Line|Polygon|Star|Boolean|Image)(\s+\d+|$)/;
 
 /**
  * Tests whether a layer name is a generic/default Figma name.
  *
  * Generic names are auto-assigned by Figma when a layer is created and
  * follow the pattern `TypeName` or `TypeName N` (e.g. "Frame 1", "Vector").
+ * Also catches suffixed variants like "Frame 1-wrapper" and "Group 3-content".
  *
  * @param {string} name - The layer name to test
  * @returns {boolean} `true` if the name matches the generic pattern
  *
  * @example
- * isGenericName('Frame 1')    // true
- * isGenericName('Vector')     // true
- * isGenericName('icon-frame') // false
+ * isGenericName('Frame 1')          // true
+ * isGenericName('Frame 1-wrapper')  // true
+ * isGenericName('Vector')           // true
+ * isGenericName('icon-frame')       // false
+ * isGenericName('Framework')        // false
  */
 export function isGenericName(name) {
   return GENERIC_NAME_PATTERN.test(name);

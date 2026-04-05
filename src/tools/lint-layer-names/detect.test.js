@@ -33,6 +33,11 @@ describe("isGenericName", () => {
       "Polygon",
       "Star",
       "Boolean",
+      // Suffixed variants — still generic names with auto-assigned prefixes
+      "Frame 1-wrapper",
+      "Frame 1 copy",
+      "Group 3-content",
+      "Rectangle 2-bg",
     ];
 
     it.each(genericNames)('returns true for "%s"', (name) => {
@@ -53,7 +58,6 @@ describe("isGenericName", () => {
       "icon",
       "label-text",
       "Frame Extra Stuff",
-      "Frame 1 copy",
       "Group hello",
       "My Rectangle 3",
       "the Vector",
@@ -63,6 +67,12 @@ describe("isGenericName", () => {
       "rectangle",
       "",
       "123",
+      // Guard against false positives on words starting with type names
+      "Framework",
+      "Grouping",
+      "Lineage",
+      "Stardust",
+      "Images-container",
     ];
 
     it.each(nonGenericNames)('returns false for "%s"', (name) => {
