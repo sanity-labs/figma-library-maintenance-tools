@@ -15,7 +15,10 @@
     "figma-lint-variants": "./src/tools/lint-variants/cli.js",
     "figma-lint-casing": "./src/tools/lint-casing/cli.js",
     "figma-lint-canvas": "./src/tools/lint-canvas/cli.js",
-    "figma-run-script": "./src/tools/run-script/cli.js"
+    "figma-run-script": "./src/tools/run-script/cli.js",
+    "figma-audit-a11y-target-sizes": "./src/tools/audit-a11y-target-sizes/cli.js",
+    "figma-audit-a11y-states": "./src/tools/audit-a11y-missing-states/cli.js",
+    "figma-audit-a11y-descriptions": "./src/tools/audit-a11y-descriptions/cli.js"
   },
   "scripts": {
     "test": "vitest run",

@@ -31,6 +31,9 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [9. Variant Linter](#9-variant-linter)
   - [10. Layer Casing Linter](#10-layer-casing-linter)
   - [11. Canvas Hygiene Linter](#11-canvas-hygiene-linter)
+  - [12. Accessibility: Target Size Auditor](#12-accessibility-target-size-auditor)
+  - [13. Accessibility: Missing States Auditor](#13-accessibility-missing-states-auditor)
+  - [14. Accessibility: Description Quality Auditor](#14-accessibility-description-quality-auditor)
 - [Programmatic Usage](#programmatic-usage)
 - [Custom Scripts](#custom-scripts)
 - [Exit Codes](#exit-codes)
@@ -375,6 +378,69 @@ figma-lint-canvas --stdin < data.json
 | `origin-drift` | Page content does not start at canvas origin (0, 0) |
 | `page-name-whitespace` | Page name has invisible leading or trailing spaces |
 
+### 12. Accessibility: Target Size Auditor
+
+Audits interactive components for WCAG 2.5.8 target size compliance. Finds the smallest variant in each interactive component set and checks whether its minimum dimension meets the 24×24px threshold.
+
+```sh
+figma-audit-a11y-target-sizes
+figma-audit-a11y-target-sizes -p "Components"
+figma-audit-a11y-target-sizes --stdin < data.json
+```
+
+**Severity levels:**
+
+| Severity | Condition |
+|----------|-----------|
+| `high` | Minimum dimension below 17px |
+| `medium` | Minimum dimension 17–23px (below AA minimum) |
+
+**Interactive components checked:** Button, Checkbox, Radio, Switch, Select, TextInput, TextArea, MenuItem, Autocomplete, TabList, Avatar, Badge, Toast.
+
+---
+
+### 13. Accessibility: Missing States Auditor
+
+Audits interactive components for missing state variants — focused, disabled, invalid, and readOnly — that are required for accessible keyboard and screen reader interaction.
+
+```sh
+figma-audit-a11y-states
+figma-audit-a11y-states -p "Components"
+figma-audit-a11y-states --stdin < data.json
+```
+
+**Severity levels:**
+
+| Missing State | Severity | WCAG |
+|---------------|----------|------|
+| `focused` | `high` | 2.4.7 (Focus Visible) |
+| `disabled` | `medium` | 4.1.2 (Name, Role, Value) |
+| `invalid` | `medium` | 3.3.1 (Error Identification) |
+| `readOnly` | `low` | — |
+
+**Expected states per component:** Each interactive component has a defined set of required states. For example, TextInput expects focused, disabled, invalid, and readOnly. Checkbox expects focused and disabled. The full map is in `detect.js`.
+
+---
+
+### 14. Accessibility: Description Quality Auditor
+
+Checks whether interactive component descriptions include accessibility-relevant documentation — keyboard behavior, ARIA roles, focus management, or screen reader expectations.
+
+```sh
+figma-audit-a11y-descriptions
+figma-audit-a11y-descriptions -p "Components"
+figma-audit-a11y-descriptions --stdin < data.json
+```
+
+**Severity levels:**
+
+| Severity | Condition |
+|----------|-----------|
+| `high` | Complex widget (Dialog, Menu, Autocomplete, Popover, TabList, Toast) missing a11y notes |
+| `medium` | Simple control (Button, Checkbox, Select, etc.) missing a11y notes |
+
+Each issue includes a `recommendation` field with specific guidance on what accessibility information should be added to that component's description.
+
 ---
 
 ## Programmatic Usage
@@ -393,6 +459,9 @@ import { scanPageHygiene } from 'figma-library-maintenance-tools/src/tools/scan-
 import { lintVariants } from 'figma-library-maintenance-tools/src/tools/lint-variants/index.js'
 import { lintCasing } from 'figma-library-maintenance-tools/src/tools/lint-casing/index.js'
 import { lintCanvas } from 'figma-library-maintenance-tools/src/tools/lint-canvas/index.js'
+import { auditA11yTargetSizes } from 'figma-library-maintenance-tools/src/tools/audit-a11y-target-sizes/index.js'
+import { auditA11yMissingStates } from 'figma-library-maintenance-tools/src/tools/audit-a11y-missing-states/index.js'
+import { auditA11yDescriptionCoverage } from 'figma-library-maintenance-tools/src/tools/audit-a11y-descriptions/index.js'
 
 // Via REST API
 const report = await lintLayerNames({
