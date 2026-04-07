@@ -1,12 +1,34 @@
 import { createFigmaClient } from "../../shared/figma-client.js";
 import { getEffectiveFileKey } from "../../shared/cli-utils.js";
-import { findComponents } from "../../shared/tree-traversal.js";
+import { findComponents, traverseNodes } from "../../shared/tree-traversal.js";
 import { detectUnboundValues, buildSpaceScale } from "./detect.js";
 import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
 
 /**
  * @typedef {import('./detect.js').UnboundValueIssue} UnboundValueIssue
  */
+
+/**
+ * Builds a Map from component ID to component node from the full file document.
+ *
+ * This map is used by {@link detectUnboundValues} to determine whether an
+ * unbound value on an INSTANCE node is inherited from its source component.
+ *
+ * @param {import('../../shared/tree-traversal.js').FigmaNode} document - The Figma file document root
+ * @returns {Map<string, import('../../shared/tree-traversal.js').FigmaNode>} Map from component ID to node
+ */
+function buildComponentMap(document) {
+  /** @type {Map<string, import('../../shared/tree-traversal.js').FigmaNode>} */
+  const map = new Map();
+
+  traverseNodes(document, ({ node }) => {
+    if (node.type === "COMPONENT") {
+      map.set(node.id, node);
+    }
+  });
+
+  return map;
+}
 
 /**
  * @typedef {Object} LintAutolayoutValuesOptions
@@ -27,6 +49,9 @@ import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
  * @property {number} bindable - Number of issues where the value exists in the space scale
  * @property {number} offScale - Number of issues where the value is not in the space scale
  * @property {number} exceptions - Number of issues with negative or otherwise exceptional values
+ * @property {number} subScale - Number of issues with sub-scale values (below minimum spacing step)
+ * @property {number} inherited - Number of issues inherited from a source component (instance)
+ * @property {number} consumer - Number of issues owned by the consuming component
  */
 
 /**
@@ -112,6 +137,7 @@ export async function lintAutolayoutValues({
   }
 
   const spaceScale = buildSpaceScale(variablesResponse);
+  const componentMap = buildComponentMap(file.document);
 
   /** @type {UnboundValueIssue[]} */
   const issues = [];
@@ -137,6 +163,7 @@ export async function lintAutolayoutValues({
           componentSet.name,
           variant.name,
           spaceScale,
+          componentMap,
         );
         if (found.length > 0) {
           issues.push(...found);
@@ -152,6 +179,7 @@ export async function lintAutolayoutValues({
         component.name,
         null,
         spaceScale,
+        componentMap,
       );
       if (found.length > 0) {
         issues.push(...found);
@@ -159,10 +187,13 @@ export async function lintAutolayoutValues({
     }
   }
 
-  // Count issues by status
+  // Count issues by status and origin
   let bindable = 0;
   let offScale = 0;
   let exceptions = 0;
+  let subScale = 0;
+  let inherited = 0;
+  let consumer = 0;
 
   for (const issue of issues) {
     if (issue.status === "bindable") {
@@ -171,6 +202,14 @@ export async function lintAutolayoutValues({
       offScale++;
     } else if (issue.status === "exception") {
       exceptions++;
+    } else if (issue.status === "sub-scale") {
+      subScale++;
+    }
+
+    if (issue.origin === "inherited") {
+      inherited++;
+    } else {
+      consumer++;
     }
   }
 
@@ -184,6 +223,9 @@ export async function lintAutolayoutValues({
       bindable,
       offScale,
       exceptions,
+      subScale,
+      inherited,
+      consumer,
     },
     issues: enrichedIssues,
   };

@@ -10,6 +10,8 @@ const HELP_TEXT = `
 Usage: figma-lint-autolayout [options]
 
 Detects unbound auto-layout padding and gap values in Figma components.
+Classifies findings by bindability (bindable, off-scale, sub-scale, exception)
+and by origin (consumer-owned vs. inherited from a source component instance).
 
 Options:
   -f, --file-key <key>    Figma file key (or set FIGMA_FILE_KEY)

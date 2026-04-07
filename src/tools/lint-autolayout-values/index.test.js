@@ -140,6 +140,9 @@ describe("lintAutolayoutValues", () => {
     expect(typeof report.summary.bindable).toBe("number");
     expect(typeof report.summary.offScale).toBe("number");
     expect(typeof report.summary.exceptions).toBe("number");
+    expect(typeof report.summary.subScale).toBe("number");
+    expect(typeof report.summary.inherited).toBe("number");
+    expect(typeof report.summary.consumer).toBe("number");
     expect(Array.isArray(report.issues)).toBe(true);
   });
 
@@ -839,5 +842,114 @@ describe("lintAutolayoutValues", () => {
     expect(report.issues[0].figmaUrl).toBe(
       "https://www.figma.com/design/branchFile/?node-id=3-0",
     );
+  });
+
+  it("counts sub-scale values in the summary", async () => {
+    const fileResponse = buildFakeFileResponse([
+      {
+        id: "1:0",
+        name: "Page",
+        type: "CANVAS",
+        children: [
+          {
+            id: "2:0",
+            name: "Hotkeys",
+            type: "COMPONENT",
+            children: [
+              {
+                id: "3:0",
+                name: "Keys",
+                type: "FRAME",
+                layoutMode: "HORIZONTAL",
+                paddingTop: 1,
+                paddingBottom: 1,
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const variablesResponse = buildFakeVariablesResponse(
+      standardSpaceEntries(),
+    );
+    setupMockClient(fileResponse, variablesResponse);
+
+    const report = await lintAutolayoutValues({
+      accessToken: "fake-token",
+      fileKey: "abc123",
+      pages: [],
+    });
+
+    expect(report.summary.subScale).toBe(2);
+    expect(report.summary.bindable).toBe(0);
+    expect(report.summary.offScale).toBe(0);
+  });
+
+  it("classifies inherited issues from instance source components", async () => {
+    const fileResponse = buildFakeFileResponse([
+      {
+        id: "1:0",
+        name: "Page",
+        type: "CANVAS",
+        children: [
+          // Source component (Hotkeys)
+          {
+            id: "src:1",
+            name: "Hotkeys",
+            type: "COMPONENT",
+            layoutMode: "HORIZONTAL",
+            paddingTop: 1,
+            paddingBottom: 1,
+          },
+          // Consumer component that contains an instance of Hotkeys
+          {
+            id: "2:0",
+            name: "MenuItem",
+            type: "COMPONENT",
+            children: [
+              {
+                id: "inst:1",
+                name: "Hotkeys",
+                type: "INSTANCE",
+                componentId: "src:1",
+                layoutMode: "HORIZONTAL",
+                paddingTop: 1,
+                paddingBottom: 1,
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const variablesResponse = buildFakeVariablesResponse(
+      standardSpaceEntries(),
+    );
+    setupMockClient(fileResponse, variablesResponse);
+
+    const report = await lintAutolayoutValues({
+      accessToken: "fake-token",
+      fileKey: "abc123",
+      pages: [],
+    });
+
+    // The Hotkeys source component reports 2 consumer issues (it owns them)
+    // The MenuItem instance reports 2 inherited issues (fix belongs on Hotkeys)
+    const inheritedIssues = report.issues.filter(
+      (i) => i.origin === "inherited",
+    );
+    const consumerIssues = report.issues.filter(
+      (i) => i.origin === "consumer",
+    );
+
+    expect(inheritedIssues.length).toBe(2);
+    expect(consumerIssues.length).toBe(2);
+    expect(report.summary.inherited).toBe(2);
+    expect(report.summary.consumer).toBe(2);
+
+    for (const issue of inheritedIssues) {
+      expect(issue.sourceComponentName).toBe("Hotkeys");
+    }
   });
 });

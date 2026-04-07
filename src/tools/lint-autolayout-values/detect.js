@@ -8,7 +8,10 @@ import { traverseNodes } from "../../shared/tree-traversal.js";
  * @property {string} nodeId - Figma node ID
  * @property {string} property - The unbound property (paddingTop, itemSpacing, etc.)
  * @property {number} rawValue - The raw numeric value
- * @property {'bindable'|'off-scale'|'exception'} status - Classification of the value
+ * @property {'bindable'|'off-scale'|'exception'|'sub-scale'} status - Classification of the value
+ * @property {'consumer'|'inherited'} origin - Whether the issue belongs to this component
+ *   or is inherited from a source component (instance)
+ * @property {string} [sourceComponentName] - Name of the source component when origin is 'inherited'
  * @property {string} [suggestedVariable] - Variable name if status is 'bindable'
  * @property {string} [nearestVariables] - Description of nearest variables if off-scale
  */
@@ -21,10 +24,21 @@ import { traverseNodes } from "../../shared/tree-traversal.js";
 
 /**
  * @typedef {Object} ClassifyResult
- * @property {'bindable'|'off-scale'|'exception'} status - Classification of the value
+ * @property {'bindable'|'off-scale'|'exception'|'sub-scale'} status - Classification of the value
  * @property {string} [suggestedVariable] - Variable name if status is 'bindable'
  * @property {string} [nearestVariables] - Description of nearest variables if off-scale
  */
+
+/**
+ * The minimum spacing scale step in pixels. Values that are positive but
+ * below this threshold are classified as 'sub-scale' — intentional
+ * structural values for optical alignment that fall below the spacing
+ * scale's smallest step. These should be documented as exceptions rather
+ * than treated as binding failures.
+ *
+ * @type {number}
+ */
+export const SUB_SCALE_THRESHOLD = 2;
 
 /**
  * The auto-layout spacing properties to check for variable bindings.
@@ -106,8 +120,10 @@ export function getUnboundProperties(node) {
 /**
  * Classifies a raw numeric spacing value against a space scale.
  *
- * Returns one of three statuses:
+ * Returns one of four statuses:
  * - `'exception'` — the value is negative and cannot be mapped to a variable
+ * - `'sub-scale'` — the value is positive but below {@link SUB_SCALE_THRESHOLD},
+ *   indicating a likely intentional structural value for optical alignment
  * - `'bindable'` — the value exists in the space scale and can be directly bound
  * - `'off-scale'` — the value does not match any scale entry; the two closest
  *   scale values are reported for reference
@@ -120,6 +136,7 @@ export function getUnboundProperties(node) {
  * const scale = new Map([[0, 'Space/0'], [4, 'Space/1'], [8, 'Space/2'], [12, 'Space/3']])
  * classifyValue(8, scale)   // => { status: 'bindable', suggestedVariable: 'Space/2' }
  * classifyValue(-4, scale)  // => { status: 'exception' }
+ * classifyValue(1, scale)   // => { status: 'sub-scale' }
  * classifyValue(10, scale)  // => { status: 'off-scale', nearestVariables: 'nearest are Space/2=8 and Space/3=12' }
  */
 export function classifyValue(rawValue, spaceScale) {
@@ -129,6 +146,12 @@ export function classifyValue(rawValue, spaceScale) {
 
   if (spaceScale.has(rawValue)) {
     return { status: "bindable", suggestedVariable: spaceScale.get(rawValue) };
+  }
+
+  // Positive values below the sub-scale threshold that aren't in the scale
+  // are likely intentional structural values (e.g. 1px optical alignment)
+  if (rawValue > 0 && rawValue < SUB_SCALE_THRESHOLD) {
+    return { status: "sub-scale" };
   }
 
   // Find the two closest values in the scale
@@ -250,12 +273,62 @@ export function buildSpaceScale(variablesResponse) {
 }
 
 /**
+ * Determines whether an unbound value on a node is owned by the consuming
+ * component ("consumer") or inherited from the source component of an instance
+ * ("inherited").
+ *
+ * For INSTANCE nodes, checks the optional componentMap to find the source
+ * component. If the source component has the same property with the same
+ * value and is also unbound, the issue belongs to the source — not the consumer.
+ *
+ * @param {import('../../shared/tree-traversal.js').FigmaNode} node - The node with the unbound value
+ * @param {string} property - The unbound property name
+ * @param {number} rawValue - The unbound numeric value
+ * @param {Map<string, import('../../shared/tree-traversal.js').FigmaNode>} [componentMap] -
+ *   Map from component ID to component node. Built from file data.
+ * @returns {{ origin: 'consumer'|'inherited', sourceComponentName?: string }}
+ *
+ * @example
+ * classifyOrigin(instanceNode, 'paddingTop', 1, componentMap)
+ * // => { origin: 'inherited', sourceComponentName: 'Hotkeys' }
+ */
+export function classifyOrigin(node, property, rawValue, componentMap) {
+  if (node.type !== "INSTANCE" || !componentMap || !node.componentId) {
+    return { origin: "consumer" };
+  }
+
+  const source = componentMap.get(node.componentId);
+  if (!source) {
+    return { origin: "consumer" };
+  }
+
+  // Check if the source component has the same value and is also unbound
+  if (property in source) {
+    const sourceValue = source[property];
+    const sourceBound = source.boundVariables || {};
+    const sourceIsBound = sourceBound[property] && (
+      typeof sourceBound[property] === "object" && sourceBound[property].id
+    );
+
+    if (sourceValue === rawValue && !sourceIsBound) {
+      return { origin: "inherited", sourceComponentName: source.name };
+    }
+  }
+
+  return { origin: "consumer" };
+}
+
+/**
  * Traverses a component tree and detects all auto-layout spacing properties
  * that are not bound to a spacing variable.
  *
  * For every auto-layout node found in the tree, checks each spacing property
  * (padding and gap). Unbound properties are classified against the provided
  * space scale and collected into {@link UnboundValueIssue} objects.
+ *
+ * When a `componentMap` is provided, INSTANCE nodes are checked against their
+ * source component to determine whether unbound values are inherited from the
+ * source (fix belongs there) or are consumer-level overrides.
  *
  * Uses {@link traverseNodes} from the shared tree-traversal module for
  * depth-first traversal.
@@ -264,16 +337,22 @@ export function buildSpaceScale(variablesResponse) {
  * @param {string} componentName - Display name of the containing component or component set
  * @param {string|null} variantName - Variant name when inside a component set, or null for standalone components
  * @param {Map<number, string>} spaceScale - Space scale Map from {@link buildSpaceScale}
+ * @param {Map<string, import('../../shared/tree-traversal.js').FigmaNode>} [componentMap] -
+ *   Optional map from component ID to component node for origin classification.
+ *   When omitted, all findings default to origin 'consumer'.
  * @returns {UnboundValueIssue[]} Array of all unbound auto-layout value issues found
  *
  * @example
  * const issues = detectUnboundValues(variantNode, 'Button', 'Size=Large', spaceScale)
+ * // With origin classification:
+ * const issues = detectUnboundValues(variantNode, 'Button', 'Size=Large', spaceScale, componentMap)
  */
 export function detectUnboundValues(
   componentNode,
   componentName,
   variantName,
   spaceScale,
+  componentMap,
 ) {
   /** @type {UnboundValueIssue[]} */
   const issues = [];
@@ -287,6 +366,7 @@ export function detectUnboundValues(
 
     for (const { property, rawValue } of unboundProps) {
       const classification = classifyValue(rawValue, spaceScale);
+      const originInfo = classifyOrigin(node, property, rawValue, componentMap);
 
       /** @type {UnboundValueIssue} */
       const issue = {
@@ -296,10 +376,15 @@ export function detectUnboundValues(
         property,
         rawValue,
         status: classification.status,
+        origin: originInfo.origin,
       };
 
       if (variantName !== null && variantName !== undefined) {
         issue.variantName = variantName;
+      }
+
+      if (originInfo.sourceComponentName) {
+        issue.sourceComponentName = originInfo.sourceComponentName;
       }
 
       if (classification.suggestedVariable) {

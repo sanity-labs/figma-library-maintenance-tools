@@ -3,8 +3,10 @@ import {
   isAutoLayoutNode,
   getUnboundProperties,
   classifyValue,
+  classifyOrigin,
   buildSpaceScale,
   detectUnboundValues,
+  SUB_SCALE_THRESHOLD,
 } from './detect.js'
 
 describe('isAutoLayoutNode', () => {
@@ -266,6 +268,34 @@ describe('classifyValue', () => {
     const result = classifyValue(-100, scale)
 
     expect(result.status).toBe('exception')
+  })
+
+  it('returns sub-scale for value 1 when 1 is not in the scale and is below threshold', () => {
+    const scale = buildTestScale()
+
+    const result = classifyValue(1, scale)
+
+    expect(result.status).toBe('sub-scale')
+    expect(result.suggestedVariable).toBeUndefined()
+    expect(result.nearestVariables).toBeUndefined()
+  })
+
+  it('returns bindable for value 1 when 1 IS in the scale, even though below threshold', () => {
+    const scale = new Map([
+      [0, 'Space/0'],
+      [1, 'Space/0.5'],
+      [4, 'Space/1'],
+    ])
+
+    const result = classifyValue(1, scale)
+
+    expect(result.status).toBe('bindable')
+    expect(result.suggestedVariable).toBe('Space/0.5')
+  })
+
+  it('SUB_SCALE_THRESHOLD is exported and is a positive number', () => {
+    expect(SUB_SCALE_THRESHOLD).toBeGreaterThan(0)
+    expect(typeof SUB_SCALE_THRESHOLD).toBe('number')
   })
 })
 
@@ -787,5 +817,201 @@ describe('detectUnboundValues', () => {
     expect(issues).toHaveLength(2)
     expect(issues[0].nodeId).toBe('comp-9')
     expect(issues[1].nodeId).toBe('comp-9')
+  })
+
+  it('populates origin as "consumer" by default when no componentMap is provided', () => {
+    const scale = buildTestScale()
+    const component = {
+      id: 'comp-origin-1',
+      name: 'Widget',
+      type: 'COMPONENT',
+      children: [
+        {
+          id: 'frame-o1',
+          name: 'Content',
+          type: 'FRAME',
+          layoutMode: 'HORIZONTAL',
+          paddingTop: 8,
+        },
+      ],
+    }
+
+    const issues = detectUnboundValues(component, 'Widget', null, scale)
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0].origin).toBe('consumer')
+    expect(issues[0].sourceComponentName).toBeUndefined()
+  })
+
+  it('populates origin as "inherited" and sourceComponentName for instance with matching unbound source', () => {
+    const scale = buildTestScale()
+    const sourceComponent = {
+      id: 'hotkeys-src',
+      name: 'Hotkeys',
+      type: 'COMPONENT',
+      layoutMode: 'HORIZONTAL',
+      paddingTop: 1,
+      paddingRight: 1,
+      paddingBottom: 1,
+      paddingLeft: 1,
+      // No boundVariables — the source itself is unbound
+    }
+    const componentMap = new Map([['hotkeys-src', sourceComponent]])
+
+    const component = {
+      id: 'menu-item-1',
+      name: 'MenuItem',
+      type: 'COMPONENT',
+      children: [
+        {
+          id: 'inst-1',
+          name: 'Hotkeys',
+          type: 'INSTANCE',
+          componentId: 'hotkeys-src',
+          layoutMode: 'HORIZONTAL',
+          paddingTop: 1,
+          paddingRight: 1,
+          paddingBottom: 1,
+          paddingLeft: 1,
+        },
+      ],
+    }
+
+    const issues = detectUnboundValues(component, 'MenuItem', 'variant-1', scale, componentMap)
+
+    expect(issues.length).toBeGreaterThan(0)
+    const inherited = issues.filter((i) => i.origin === 'inherited')
+    expect(inherited.length).toBe(4) // 4 padding properties
+    expect(inherited[0].sourceComponentName).toBe('Hotkeys')
+  })
+
+  it('populates origin as "consumer" for instance with a value that differs from source', () => {
+    const scale = buildTestScale()
+    const sourceComponent = {
+      id: 'src-comp',
+      name: 'SourceComp',
+      type: 'COMPONENT',
+      layoutMode: 'HORIZONTAL',
+      paddingTop: 4,
+      boundVariables: {
+        paddingTop: { id: 'v1', type: 'VARIABLE_ALIAS' },
+      },
+    }
+    const componentMap = new Map([['src-comp', sourceComponent]])
+
+    const component = {
+      id: 'consumer-1',
+      name: 'Consumer',
+      type: 'COMPONENT',
+      children: [
+        {
+          id: 'inst-2',
+          name: 'SourceComp',
+          type: 'INSTANCE',
+          componentId: 'src-comp',
+          layoutMode: 'HORIZONTAL',
+          paddingTop: 8,
+        },
+      ],
+    }
+
+    const issues = detectUnboundValues(component, 'Consumer', null, scale, componentMap)
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0].origin).toBe('consumer')
+    expect(issues[0].sourceComponentName).toBeUndefined()
+  })
+})
+
+describe('classifyOrigin', () => {
+  it('returns consumer for non-INSTANCE nodes regardless of componentMap', () => {
+    const node = { type: 'FRAME', id: 'frame-1', paddingTop: 8 }
+    const map = new Map()
+
+    const result = classifyOrigin(node, 'paddingTop', 8, map)
+
+    expect(result.origin).toBe('consumer')
+    expect(result.sourceComponentName).toBeUndefined()
+  })
+
+  it('returns consumer when componentMap is not provided', () => {
+    const node = { type: 'INSTANCE', id: 'inst-1', componentId: 'src-1', paddingTop: 8 }
+
+    const result = classifyOrigin(node, 'paddingTop', 8)
+
+    expect(result.origin).toBe('consumer')
+  })
+
+  it('returns consumer when INSTANCE componentId is not in the map', () => {
+    const node = { type: 'INSTANCE', id: 'inst-1', componentId: 'unknown', paddingTop: 8 }
+    const map = new Map()
+
+    const result = classifyOrigin(node, 'paddingTop', 8, map)
+
+    expect(result.origin).toBe('consumer')
+  })
+
+  it('returns inherited when source has same value and is also unbound', () => {
+    const source = {
+      id: 'src-1',
+      name: 'Hotkeys',
+      type: 'COMPONENT',
+      paddingTop: 1,
+      // No boundVariables
+    }
+    const map = new Map([['src-1', source]])
+    const node = { type: 'INSTANCE', id: 'inst-1', componentId: 'src-1', paddingTop: 1 }
+
+    const result = classifyOrigin(node, 'paddingTop', 1, map)
+
+    expect(result.origin).toBe('inherited')
+    expect(result.sourceComponentName).toBe('Hotkeys')
+  })
+
+  it('returns consumer when source has same value but IS bound', () => {
+    const source = {
+      id: 'src-2',
+      name: 'BoundComp',
+      type: 'COMPONENT',
+      paddingTop: 8,
+      boundVariables: {
+        paddingTop: { id: 'v1', type: 'VARIABLE_ALIAS' },
+      },
+    }
+    const map = new Map([['src-2', source]])
+    const node = { type: 'INSTANCE', id: 'inst-2', componentId: 'src-2', paddingTop: 8 }
+
+    const result = classifyOrigin(node, 'paddingTop', 8, map)
+
+    expect(result.origin).toBe('consumer')
+  })
+
+  it('returns consumer when source has a different value', () => {
+    const source = {
+      id: 'src-3',
+      name: 'DifferentComp',
+      type: 'COMPONENT',
+      paddingTop: 4,
+    }
+    const map = new Map([['src-3', source]])
+    const node = { type: 'INSTANCE', id: 'inst-3', componentId: 'src-3', paddingTop: 8 }
+
+    const result = classifyOrigin(node, 'paddingTop', 8, map)
+
+    expect(result.origin).toBe('consumer')
+  })
+
+  it('returns consumer when source does not have the property at all', () => {
+    const source = {
+      id: 'src-4',
+      name: 'NoProperty',
+      type: 'COMPONENT',
+    }
+    const map = new Map([['src-4', source]])
+    const node = { type: 'INSTANCE', id: 'inst-4', componentId: 'src-4', paddingTop: 8 }
+
+    const result = classifyOrigin(node, 'paddingTop', 8, map)
+
+    expect(result.origin).toBe('consumer')
   })
 })
