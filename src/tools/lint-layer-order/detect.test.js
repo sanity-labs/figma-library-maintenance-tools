@@ -8,6 +8,9 @@ import {
   detectNamingMismatch,
   checkAbsolutePositioning,
   checkVariantConsistency,
+  getVariantPosition,
+  checkVariantOrder,
+  ROW_TOLERANCE,
   auditLayerOrder,
 } from './detect.js'
 
@@ -312,5 +315,184 @@ describe('auditLayerOrder', () => {
       ]),
     ])
     expect(auditLayerOrder(page)).toHaveLength(0)
+  })
+
+  it('includes variantOrder issues when position data is available', () => {
+    // Variants with positions in wrong order (top-left should be last in array)
+    const page = makePage('Components', [
+      makeComponentSet('Button', [
+        makePositionedVariant('s=enabled', [], 0, 0),   // top-left — should be last
+        makePositionedVariant('s=hovered', [], 100, 0),  // top-right — should be before last
+      ]),
+    ])
+    const issues = auditLayerOrder(page)
+    expect(issues.map((i) => i.category)).toContain('variantOrder')
+  })
+})
+
+// ── Positioned variant helper ──────────────────────────────────────
+
+function makePositionedVariant(name, layerNames, x, y, opts = {}) {
+  return {
+    id: `v:${name}`,
+    name,
+    type: 'COMPONENT',
+    x,
+    y,
+    children: layerNames.map((n, i) => ({
+      id: `l:${name}:${i}`,
+      name: n,
+      type: 'FRAME',
+      layoutPositioning: opts.absoluteLayers?.includes(n) ? 'ABSOLUTE' : 'AUTO',
+    })),
+  }
+}
+
+// ── getVariantPosition ─────────────────────────────────────────────
+
+describe('getVariantPosition', () => {
+  it('reads x/y from direct properties (Plugin API format)', () => {
+    expect(getVariantPosition({ x: 100, y: 200 })).toEqual({ x: 100, y: 200 })
+  })
+
+  it('reads x/y from absoluteBoundingBox (REST API format)', () => {
+    expect(getVariantPosition({
+      absoluteBoundingBox: { x: 50, y: 75, width: 100, height: 40 },
+    })).toEqual({ x: 50, y: 75 })
+  })
+
+  it('prefers direct x/y over absoluteBoundingBox', () => {
+    expect(getVariantPosition({
+      x: 10, y: 20,
+      absoluteBoundingBox: { x: 99, y: 99, width: 1, height: 1 },
+    })).toEqual({ x: 10, y: 20 })
+  })
+
+  it('returns null when no position data is available', () => {
+    expect(getVariantPosition({ id: 'v:1', name: 'v', type: 'COMPONENT' })).toBeNull()
+  })
+
+  it('returns null for partial position data (x only)', () => {
+    expect(getVariantPosition({ x: 10 })).toBeNull()
+  })
+})
+
+// ── checkVariantOrder ──────────────────────────────────────────────
+
+describe('checkVariantOrder', () => {
+  it('returns no issues when variants are in correct spatial order', () => {
+    // Correct order: array should be y-desc, x-desc (so panel reads top-left first)
+    // Canvas: A(0,0) B(100,0) C(0,50) D(100,50)
+    // Panel should read: A B C D (top-left to bottom-right)
+    // Array must be: D C B A (reversed)
+    const cs = makeComponentSet('Button', [
+      makePositionedVariant('D', [], 100, 50),  // array[0] = bottom-right
+      makePositionedVariant('C', [], 0, 50),     // array[1]
+      makePositionedVariant('B', [], 100, 0),    // array[2]
+      makePositionedVariant('A', [], 0, 0),      // array[3] = top-left (top of panel)
+    ])
+    expect(checkVariantOrder(cs, 'Components')).toHaveLength(0)
+  })
+
+  it('flags variants not in spatial order', () => {
+    // Array is in forward spatial order (wrong — should be reversed)
+    const cs = makeComponentSet('Button', [
+      makePositionedVariant('A', [], 0, 0),      // top-left first in array = wrong
+      makePositionedVariant('B', [], 100, 0),
+      makePositionedVariant('C', [], 0, 50),
+      makePositionedVariant('D', [], 100, 50),    // bottom-right last = wrong
+    ])
+    const issues = checkVariantOrder(cs, 'Components')
+    expect(issues).toHaveLength(1)
+    expect(issues[0].category).toBe('variantOrder')
+    expect(issues[0].componentName).toBe('Button')
+    expect(issues[0].message).toContain('4')
+  })
+
+  it('reports the component set node ID, not a variant ID', () => {
+    const cs = makeComponentSet('Badge', [
+      makePositionedVariant('A', [], 0, 0),
+      makePositionedVariant('B', [], 100, 0),
+    ])
+    const issues = checkVariantOrder(cs, 'Page')
+    expect(issues).toHaveLength(1)
+    expect(issues[0].nodeId).toBe('cs:Badge')
+  })
+
+  it('groups variants on the same row using tolerance', () => {
+    // A and B are on the same row (y differs by 1px, within ROW_TOLERANCE)
+    // C and D are on the next row
+    // Correct array order: D, C, B, A (y-desc then x-desc)
+    const cs = makeComponentSet('X', [
+      makePositionedVariant('D', [], 100, 51),
+      makePositionedVariant('C', [], 0, 50),
+      makePositionedVariant('B', [], 100, 1),    // same row as A (within tolerance)
+      makePositionedVariant('A', [], 0, 0),
+    ])
+    expect(checkVariantOrder(cs, 'P')).toHaveLength(0)
+  })
+
+  it('skips component sets with fewer than 2 variants', () => {
+    const cs = makeComponentSet('Spinner', [
+      makePositionedVariant('default', [], 0, 0),
+    ])
+    expect(checkVariantOrder(cs, 'P')).toHaveLength(0)
+  })
+
+  it('skips when position data is missing', () => {
+    const cs = makeComponentSet('X', [
+      makeVariant('a', ['one']),
+      makeVariant('b', ['two']),
+    ])
+    expect(checkVariantOrder(cs, 'P')).toHaveLength(0)
+  })
+
+  it('works with absoluteBoundingBox (REST API format)', () => {
+    const cs = makeComponentSet('Card', [
+      {
+        id: 'v:B', name: 'B', type: 'COMPONENT',
+        absoluteBoundingBox: { x: 100, y: 0, width: 80, height: 40 },
+        children: [],
+      },
+      {
+        id: 'v:A', name: 'A', type: 'COMPONENT',
+        absoluteBoundingBox: { x: 0, y: 0, width: 80, height: 40 },
+        children: [],
+      },
+    ])
+    // B(100,0) then A(0,0) — y-desc tie, x-desc: B first, A second. Correct!
+    expect(checkVariantOrder(cs, 'P')).toHaveLength(0)
+  })
+
+  it('handles a 3×2 grid correctly', () => {
+    // Canvas grid (3 cols × 2 rows):
+    //   A(0,0)   B(100,0)   C(200,0)
+    //   D(0,50)  E(100,50)  F(200,50)
+    //
+    // Panel should read: A B C D E F
+    // Array must be reversed: F E D C B A
+    const cs = makeComponentSet('Grid', [
+      makePositionedVariant('F', [], 200, 50),
+      makePositionedVariant('E', [], 100, 50),
+      makePositionedVariant('D', [], 0, 50),
+      makePositionedVariant('C', [], 200, 0),
+      makePositionedVariant('B', [], 100, 0),
+      makePositionedVariant('A', [], 0, 0),
+    ])
+    expect(checkVariantOrder(cs, 'P')).toHaveLength(0)
+  })
+
+  it('flags a 3×2 grid with scrambled order', () => {
+    const cs = makeComponentSet('Grid', [
+      makePositionedVariant('A', [], 0, 0),      // wrong position
+      makePositionedVariant('C', [], 200, 0),
+      makePositionedVariant('B', [], 100, 0),
+      makePositionedVariant('F', [], 200, 50),
+      makePositionedVariant('E', [], 100, 50),
+      makePositionedVariant('D', [], 0, 50),
+    ])
+    const issues = checkVariantOrder(cs, 'P')
+    expect(issues).toHaveLength(1)
+    expect(issues[0].category).toBe('variantOrder')
   })
 })

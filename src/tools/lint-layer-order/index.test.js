@@ -87,4 +87,39 @@ describe('lintLayerOrder', () => {
     const report = await lintLayerOrder({ fileKey: 'abc123', fileData })
     expect(report.issues[0].figmaUrl).toContain('abc123')
   })
+
+  it('includes variantOrder in summary', async () => {
+    const fileData = makeFileData([makePage('Components', [
+      makeComponentSet('Button', [
+        makePositionedVariant('s=enabled', ['label'], 0, 0),
+        makePositionedVariant('s=hovered', ['label'], 100, 0),
+      ]),
+    ])])
+    const report = await lintLayerOrder({ fileKey: 'test', fileData })
+    expect(report.summary).toHaveProperty('variantOrder')
+    // Array is forward spatial order (wrong), so variantOrder should be 1
+    expect(report.summary.variantOrder).toBe(1)
+  })
+
+  it('reports variantOrder 0 when variants are in correct spatial order', async () => {
+    const fileData = makeFileData([makePage('Components', [
+      makeComponentSet('Button', [
+        // Correct: y-desc, x-desc (bottom-right first in array)
+        makePositionedVariant('s=hovered', ['label'], 100, 0),
+        makePositionedVariant('s=enabled', ['label'], 0, 0),
+      ]),
+    ])])
+    const report = await lintLayerOrder({ fileKey: 'test', fileData })
+    expect(report.summary.variantOrder).toBe(0)
+  })
 })
+
+function makePositionedVariant(name, layerNames, x, y, opts = {}) {
+  return {
+    id: `v:${name}`, name, type: 'COMPONENT', x, y,
+    children: layerNames.map((n, i) => ({
+      id: `l:${name}:${i}`, name: n, type: 'FRAME',
+      layoutPositioning: opts.absoluteLayers?.includes(n) ? 'ABSOLUTE' : 'AUTO',
+    })),
+  }
+}

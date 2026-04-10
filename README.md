@@ -479,7 +479,7 @@ Each issue includes a `recommendation` field with specific guidance on what acce
 
 ### 15. Layer Ordering Linter
 
-Audits layer ordering across component set variants. Checks that shared layers appear in the same relative order in every variant, that absolutely positioned background layers appear at the bottom of the layer panel, that overlay layers appear at the top, and that variant layer names are structurally consistent.
+Audits layer ordering across component set variants. Checks that shared layers appear in the same relative order in every variant, that absolutely positioned background layers appear at the bottom of the layer panel, that overlay layers appear at the top, that variant layer names are structurally consistent, and that variants are ordered to match their canvas spatial layout.
 
 Enforces the rules defined in Section 6 (Layer Ordering) of the Figma Library Structure Guidelines.
 
@@ -498,6 +498,7 @@ figma-lint-layer-order --stdin < data.json
 | Background position | `backgroundPosition` | Absolutely positioned layers with background names (`border`, `.focusRing`, `backdrop`, `bg`, `fill`, `card`) appear at the bottom of the layer panel (first in the children array) so they render behind content. |
 | Overlay position | `overlayPosition` | Absolutely positioned layers with overlay names (`closeButton`, `overlay`, `close-button`) appear at the top of the layer panel (last in the children array) so they render above content. |
 | Naming mismatch | `namingMismatch` | Variants have different layer names from the canonical variant (the first variant in the set). Reports which names are missing and which are unexpected. This is a structural issue, not an ordering issue — the tool distinguishes the two. |
+| Variant order | `variantOrder` | Variants within a component set are ordered so the layer panel reads in canvas spatial order — top-left variant at top of panel, scanning left-to-right across columns then top-to-bottom across rows. Reports the number of misplaced variants. |
 
 **What it reports:** component name, variant name, page name, issue category, expected order, actual order, node ID, direct Figma URL.
 

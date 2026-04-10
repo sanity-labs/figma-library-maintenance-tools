@@ -22,7 +22,7 @@ export const OVERLAY_LAYER_PATTERN = /^(closeButton|overlay|close-button)$/i
  * @property {string} variantName - Specific variant name
  * @property {string} nodeId - Figma node ID
  * @property {string} pageName - Page the component is on
- * @property {'variantInconsistency'|'backgroundPosition'|'overlayPosition'|'namingMismatch'} category
+ * @property {'variantInconsistency'|'backgroundPosition'|'overlayPosition'|'namingMismatch'|'variantOrder'} category
  * @property {string[]|string} expected - Expected state
  * @property {string[]|string} actual - Actual state
  * @property {string} [message] - Human-readable explanation
@@ -244,11 +244,97 @@ export function checkVariantConsistency(componentSet, pageName) {
 }
 
 /**
+ * Row tolerance in pixels for grouping variants on the same visual row.
+ * Variants within this y-distance of each other are considered to be in
+ * the same row on the canvas.
+ * @type {number}
+ */
+export const ROW_TOLERANCE = 3
+
+/**
+ * Extracts the x/y position of a variant node.
+ *
+ * Handles both the REST API format (absoluteBoundingBox.x/y) and
+ * the Plugin API format (node.x/y directly).
+ *
+ * @param {import('../../shared/tree-traversal.js').FigmaNode} node
+ * @returns {{ x: number, y: number } | null}
+ */
+export function getVariantPosition(node) {
+  if (typeof node.x === 'number' && typeof node.y === 'number') {
+    return { x: node.x, y: node.y }
+  }
+  if (node.absoluteBoundingBox) {
+    return { x: node.absoluteBoundingBox.x, y: node.absoluteBoundingBox.y }
+  }
+  return null
+}
+
+/**
+ * Checks whether variants within a component set are ordered so the
+ * layer panel reads in canvas spatial order: top-left at top of panel,
+ * bottom-right at bottom.
+ *
+ * Since Figma's layer panel reverses the children array, the expected
+ * array order is y DESCENDING then x DESCENDING — bottom-right variant
+ * first in the array (bottom of panel), top-left variant last (top of
+ * panel).
+ *
+ * @param {import('../../shared/tree-traversal.js').FigmaNode} componentSet - A COMPONENT_SET node
+ * @param {string} pageName - Page name for the report
+ * @returns {LayerOrderIssue[]}
+ */
+export function checkVariantOrder(componentSet, pageName) {
+  const variants = (componentSet.children || []).filter(
+    (c) => c.type === 'COMPONENT'
+  )
+  if (variants.length < 2) return []
+
+  // Check that position data is available
+  const positions = variants.map((v) => ({ node: v, pos: getVariantPosition(v) }))
+  if (positions.some((p) => p.pos === null)) return []
+
+  // Build the expected order: y descending, then x descending
+  // (so the layer panel, which reverses the array, reads top-left → bottom-right)
+  const sorted = [...positions].sort((a, b) => {
+    const rowA = Math.round(a.pos.y / ROW_TOLERANCE)
+    const rowB = Math.round(b.pos.y / ROW_TOLERANCE)
+    if (rowA !== rowB) return rowB - rowA
+    return b.pos.x - a.pos.x
+  })
+
+  const expectedIds = sorted.map((p) => p.node.id)
+  const actualIds = variants.map((v) => v.id)
+
+  // Compare
+  const isCorrect = expectedIds.every((id, i) => id === actualIds[i])
+  if (isCorrect) return []
+
+  // Count how many are misplaced
+  let misplaced = 0
+  for (let i = 0; i < expectedIds.length; i++) {
+    if (expectedIds[i] !== actualIds[i]) misplaced++
+  }
+
+  return [{
+    componentName: componentSet.name,
+    variantName: componentSet.name,
+    nodeId: componentSet.id,
+    pageName,
+    category: 'variantOrder',
+    expected: `Variants sorted by canvas position (top-left first in layer panel)`,
+    actual: `${misplaced} of ${variants.length} variants out of spatial order`,
+    message: `Layer panel should read in canvas grid order: top-left at top, bottom-right at bottom. ${misplaced} variants are misplaced.`,
+  }]
+}
+
+/**
  * Audits all component sets on a page for layer ordering issues.
  *
- * Runs two checks per component set:
+ * Runs three checks per component set:
  * 1. Variant consistency (shared layer ordering across variants)
  * 2. Absolute positioning (background at bottom of panel, overlay at top) per variant
+ * 3. Variant order (canvas spatial ordering within the component set)
  *
  * @param {import('../../shared/tree-traversal.js').FigmaNode} pageNode - A Figma page (CANVAS) node
  * @returns {LayerOrderIssue[]}
@@ -260,6 +346,9 @@ export function auditLayerOrder(pageNode) {
   for (const componentSet of componentSets) {
     const consistencyIssues = checkVariantConsistency(componentSet, pageNode.name)
     issues.push(...consistencyIssues)
+
+    const orderIssues = checkVariantOrder(componentSet, pageNode.name)
+    issues.push(...orderIssues)
 
     for (const variant of componentSet.children || []) {
       if (variant.type !== 'COMPONENT') continue

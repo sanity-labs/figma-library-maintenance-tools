@@ -40,6 +40,8 @@ for (const page of figma.root.children) {
                   id: v.id,
                   name: v.name,
                   type: v.type,
+                  x: v.x,
+                  y: v.y,
                   children: v.children ? v.children.map(function(l) {
                     return {
                       id: l.id,
@@ -73,6 +75,7 @@ const summary = {
   backgroundPosition: allIssues.filter(function(i) { return i.category === 'backgroundPosition'; }).length,
   overlayPosition: allIssues.filter(function(i) { return i.category === 'overlayPosition'; }).length,
   namingMismatch: allIssues.filter(function(i) { return i.category === 'namingMismatch'; }).length,
+  variantOrder: allIssues.filter(function(i) { return i.category === 'variantOrder'; }).length,
 };
 
 return {

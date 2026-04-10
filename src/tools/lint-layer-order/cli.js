@@ -16,6 +16,7 @@ Checks:
   - Background position: absolute bg/border layers at bottom of layer panel (first in array)
   - Overlay position: absolute overlay layers at top of layer panel (last in array)
   - Naming mismatch: variants with different layer names from canonical (structural, not ordering)
+  - Variant order: variants sorted by canvas position (top-left first in layer panel)
 
 Options:
   -f, --file-key <key>    Figma file key (or set FIGMA_FILE_KEY)

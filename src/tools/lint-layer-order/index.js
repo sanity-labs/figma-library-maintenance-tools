@@ -23,6 +23,7 @@ import { enrichIssuesWithUrls } from '../../shared/figma-urls.js'
  * @property {number} backgroundPosition - Background layers not first
  * @property {number} overlayPosition - Overlay layers not last
  * @property {number} namingMismatch - Variants with different layer names from canonical
+ * @property {number} variantOrder - Variants not in canvas spatial order
  */
 
 /**
@@ -88,6 +89,7 @@ export async function lintLayerOrder({
     backgroundPosition: 0,
     overlayPosition: 0,
     namingMismatch: 0,
+    variantOrder: 0,
   }
 
   for (const issue of allIssues) {
