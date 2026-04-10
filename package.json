@@ -24,7 +24,23 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+
+    "lint:names":      "node src/tools/lint-layer-names/cli.js",
+    "lint:duplicates": "node src/tools/lint-duplicate-siblings/cli.js",
+    "lint:casing":     "node src/tools/lint-casing/cli.js",
+    "lint:autolayout": "node src/tools/lint-autolayout-values/cli.js",
+    "lint:radius":     "node src/tools/lint-radius-values/cli.js",
+    "lint:text":       "node src/tools/lint-text-styles/cli.js",
+    "lint:variants":   "node src/tools/lint-variants/cli.js",
+    "lint:order":      "node src/tools/lint-layer-order/cli.js",
+    "lint:canvas":     "node src/tools/lint-canvas/cli.js",
+    "audit:properties":"node src/tools/audit-property-names/cli.js",
+    "audit:pages":     "node src/tools/scan-page-hygiene/cli.js",
+    "audit:descriptions": "node src/tools/check-descriptions/cli.js",
+    "audit:a11y-sizes":   "node src/tools/audit-a11y-target-sizes/cli.js",
+    "audit:a11y-states":  "node src/tools/audit-a11y-missing-states/cli.js",
+    "audit:a11y-docs":    "node src/tools/audit-a11y-descriptions/cli.js"
   },
   "keywords": [
     "figma",

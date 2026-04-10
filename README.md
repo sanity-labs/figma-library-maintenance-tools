@@ -50,10 +50,29 @@ Requires **Node.js 18+**.
 git clone <repo-url>
 cd figma-library-maintenance-tools
 npm install
-
-# (Optional) Link CLI commands globally
-npm link
 ```
+
+Run any tool immediately with `npx` — no global install needed:
+
+```sh
+npx figma-lint-names
+npx figma-lint-autolayout -p "Components"
+```
+
+Or add shortcuts to `package.json` for the tools you use most:
+
+```json
+"scripts": {
+  "lint:names":      "node src/tools/lint-layer-names/cli.js",
+  "lint:autolayout": "node src/tools/lint-autolayout-values/cli.js"
+}
+```
+
+```sh
+npm run lint:names -- -p "Components"
+```
+
+> **`npm link`** installs all commands globally (e.g. `figma-lint-names` without a prefix) but requires re-running if the project moves. Use it if you run tools frequently from outside the project directory.
 
 ---
 
@@ -108,24 +127,26 @@ Each script returns data in the same shape as the corresponding Figma REST API e
 
 ```sh
 # Most tools only need the file tree
-cat figma-data.json | figma-lint-names --stdin -f <file-key>
-cat figma-data.json | figma-lint-duplicates --stdin -f <file-key>
-cat figma-data.json | figma-check-descriptions --stdin -f <file-key>
-cat figma-data.json | figma-audit-properties --stdin -f <file-key>
-cat figma-data.json | figma-scan-pages --stdin -f <file-key>
-cat figma-data.json | figma-lint-layer-order --stdin -f <file-key>
+cat figma-data.json | npx figma-lint-names --stdin -f <file-key>
+cat figma-data.json | npx figma-lint-duplicates --stdin -f <file-key>
+cat figma-data.json | npx figma-check-descriptions --stdin -f <file-key>
+cat figma-data.json | npx figma-audit-properties --stdin -f <file-key>
+cat figma-data.json | npx figma-scan-pages --stdin -f <file-key>
+cat figma-data.json | npx figma-lint-layer-order --stdin -f <file-key>
 
 # The autolayout and radius linters also need variable data:
 # stdin JSON must include both keys: { "fileData": { ... }, "variablesData": { ... } }
-cat figma-full.json | figma-lint-autolayout --stdin -f <file-key>
-cat figma-full.json | figma-lint-radius --stdin -f <file-key>
+cat figma-full.json | npx figma-lint-autolayout --stdin -f <file-key>
+cat figma-full.json | npx figma-lint-radius --stdin -f <file-key>
 
 # The text style linter optionally accepts text style data for suggestions:
 # { "fileData": { ... }, "textStylesData": [ ... ] }
-cat figma-full.json | figma-lint-text-styles --stdin -f <file-key>
+cat figma-full.json | npx figma-lint-text-styles --stdin -f <file-key>
 ```
 
 > **Note:** `--stdin` makes `--token` optional, but `--file-key` is still required — it's used to generate direct Figma URLs in the report.
+
+> **MCP response size limit:** The `use_figma` tool caps responses at ~20kb. For large files, extract one page at a time (`getFileScript({ pageNames: ['Components'] })`) and concatenate the page `children` arrays before piping.
 
 **Programmatic usage (skip the REST API entirely):**
 
@@ -145,6 +166,17 @@ All tools support `fileData`. The autolayout and radius linters additionally acc
 ---
 
 ## Configuration
+
+### Token Scopes
+
+When creating a Figma personal access token, the required scopes depend on which tools you run:
+
+| Scope | Required by |
+|-------|-------------|
+| `file_content:read` | All tools |
+| `file_variables:read` | `figma-lint-autolayout`, `figma-lint-radius` |
+
+If you see a 403 error mentioning scope, generate a new token with `file_variables:read` checked.
 
 ### Environment Variables
 
