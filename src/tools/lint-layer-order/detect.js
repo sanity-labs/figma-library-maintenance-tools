@@ -2,14 +2,16 @@ import { findComponents } from '../../shared/tree-traversal.js'
 
 /**
  * Regex matching absolutely positioned background/border layer names.
- * These should appear first in the children array.
+ * These should appear at the bottom of the layer panel (first in the
+ * children array) so they render behind all content.
  * @type {RegExp}
  */
 export const BACKGROUND_LAYER_PATTERN = /^(border|background|bg|backdrop|fill|\.focusRing|card)$/i
 
 /**
  * Regex matching absolutely positioned overlay layer names.
- * These should appear last in the children array.
+ * These should appear at the top of the layer panel (last in the
+ * children array) so they render above all content.
  * @type {RegExp}
  */
 export const OVERLAY_LAYER_PATTERN = /^(closeButton|overlay|close-button)$/i
@@ -122,8 +124,10 @@ export function detectNamingMismatch(canonicalOrder, variantOrder) {
  * Checks absolutely positioned background and overlay layers within a
  * single variant (or standalone component) for correct positioning.
  *
- * Background layers should appear before all content layers.
- * Overlay layers should appear after all content layers.
+ * Background layers should be at the bottom of the layer panel (low
+ * children array indices) so they render behind content. Overlay layers
+ * should be at the top of the layer panel (high children array indices)
+ * so they render above content.
  *
  * @param {import('../../shared/tree-traversal.js').FigmaNode} componentNode - A COMPONENT node
  * @param {string} componentName - Parent component set name
@@ -161,7 +165,7 @@ export function checkAbsolutePositioning(componentNode, componentName, pageName)
       nodeId: componentNode.id,
       pageName,
       category: 'backgroundPosition',
-      expected: 'Background/border layers (absolute) should be first in children array',
+      expected: 'Background/border layers (absolute) should be at the bottom of the layer panel (first in children array)',
       actual: `Background layer at index ${lastBgIdx}, content starts at index ${firstContentIdx}`,
     })
   }
@@ -173,7 +177,7 @@ export function checkAbsolutePositioning(componentNode, componentName, pageName)
       nodeId: componentNode.id,
       pageName,
       category: 'overlayPosition',
-      expected: 'Overlay layers (absolute) should be last in children array',
+      expected: 'Overlay layers (absolute) should be at the top of the layer panel (last in children array)',
       actual: `Overlay layer at index ${firstOverlayIdx}, content ends at index ${lastContentIdx}`,
     })
   }
@@ -244,7 +248,7 @@ export function checkVariantConsistency(componentSet, pageName) {
  *
  * Runs two checks per component set:
  * 1. Variant consistency (shared layer ordering across variants)
- * 2. Absolute positioning (background first, overlay last) per variant
+ * 2. Absolute positioning (background at bottom of panel, overlay at top) per variant
  *
  * @param {import('../../shared/tree-traversal.js').FigmaNode} pageNode - A Figma page (CANVAS) node
  * @returns {LayerOrderIssue[]}

@@ -5,6 +5,13 @@
  * Reorders layers within all variants of a given component set to match
  * a canonical order derived from the first variant (or explicitly specified).
  * 
+ * NOTE on layer panel vs. children array:
+ * Figma's layer panel displays children in REVERSE array order — the last
+ * child in the array appears at the top of the panel (highest z-index) and
+ * the first child appears at the bottom (lowest z-index). This script
+ * operates on the children array directly. The canonical order describes
+ * the children array sequence (bottom-of-panel to top-of-panel).
+ * 
  * What it does:
  * 1. Reads the canonical layer order from the first variant of the target
  *    component set (or from CANONICAL_ORDER if provided).
@@ -32,7 +39,7 @@
  *     alreadyCorrect: number
  *   }
  * 
- * Reference: layer-ordering-standard.md
+ * Reference: Section 6 (Layer Ordering) of figma-library-structure-guidelines.md
  */
 
 // ── Configuration ───────────────────────────────────────────────────
