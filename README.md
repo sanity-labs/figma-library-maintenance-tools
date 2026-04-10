@@ -34,6 +34,7 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [12. Accessibility: Target Size Auditor](#12-accessibility-target-size-auditor)
   - [13. Accessibility: Missing States Auditor](#13-accessibility-missing-states-auditor)
   - [14. Accessibility: Description Quality Auditor](#14-accessibility-description-quality-auditor)
+  - [15. Layer Ordering Linter](#15-layer-ordering-linter)
 - [Programmatic Usage](#programmatic-usage)
 - [Custom Scripts](#custom-scripts)
 - [Exit Codes](#exit-codes)
@@ -112,6 +113,7 @@ cat figma-data.json | figma-lint-duplicates --stdin -f <file-key>
 cat figma-data.json | figma-check-descriptions --stdin -f <file-key>
 cat figma-data.json | figma-audit-properties --stdin -f <file-key>
 cat figma-data.json | figma-scan-pages --stdin -f <file-key>
+cat figma-data.json | figma-lint-layer-order --stdin -f <file-key>
 
 # The autolayout and radius linters also need variable data:
 # stdin JSON must include both keys: { "fileData": { ... }, "variablesData": { ... } }
@@ -138,7 +140,7 @@ const report = await lintLayerNames({
 })
 ```
 
-All eight tools support `fileData`. The autolayout and radius linters additionally accept `variablesData`. The text style linter accepts `textStylesData`.
+All tools support `fileData`. The autolayout and radius linters additionally accept `variablesData`. The text style linter accepts `textStylesData`.
 
 ---
 
@@ -443,6 +445,45 @@ Each issue includes a `recommendation` field with specific guidance on what acce
 
 ---
 
+### 15. Layer Ordering Linter
+
+Audits layer ordering across component set variants. Checks that shared layers appear in the same relative order in every variant, that absolutely positioned background layers come first, that overlay layers come last, and that variant layer names are structurally consistent.
+
+Enforces the rules defined in Section 6 (Layer Ordering) of the Figma Library Structure Guidelines.
+
+```sh
+figma-lint-layer-order
+figma-lint-layer-order -p "Components"
+figma-lint-layer-order --summary
+figma-lint-layer-order --stdin < data.json
+```
+
+**What it checks:**
+
+| Check | Category | Description |
+|-------|----------|-------------|
+| Variant consistency | `variantInconsistency` | Shared layers appear in the same relative order across all variants in a component set. If variant A has `flex-leading → flex-content → flex-trailing` and variant B has `flex-leading → flex-trailing → flex-content`, that's a failure. |
+| Background position | `backgroundPosition` | Absolutely positioned layers with background names (`border`, `.focusRing`, `backdrop`, `bg`, `fill`, `card`) appear before any content layers in the children array. |
+| Overlay position | `overlayPosition` | Absolutely positioned layers with overlay names (`closeButton`, `overlay`, `close-button`) appear after all content layers in the children array. |
+| Naming mismatch | `namingMismatch` | Variants have different layer names from the canonical variant (the first variant in the set). Reports which names are missing and which are unexpected. This is a structural issue, not an ordering issue — the tool distinguishes the two. |
+
+**What it reports:** component name, variant name, page name, issue category, expected order, actual order, node ID, direct Figma URL.
+
+**Summary mode:** `--summary` deduplicates issues by component set, showing unique patterns with occurrence counts.
+
+**Fix script:** A ready-made Plugin API fix script is included at `src/tools/lint-layer-order/fix-script.js`. Set `COMPONENT_SET_ID` to the target component set node ID and run via `use_figma`. The script reorders shared layers to match the canonical order (derived from the first variant or an explicit override). It skips structural mismatches that require manual intervention, handles duplicate layer names safely, and supports dry-run mode.
+
+```js
+// fix-script.js configuration (edit these before running)
+const COMPONENT_SET_ID = '4481:2862';  // MenuItem component set
+const CANONICAL_ORDER = null;           // null = derive from first variant
+const DRY_RUN = false;                  // true = preview without applying
+```
+
+**MCP path:** A self-contained Plugin API script is available via the `getLayerOrderLintScript()` function in `src/tools/lint-layer-order/script.js`. This runs the full audit inside Figma and returns the report — no REST API token needed.
+
+---
+
 ## Programmatic Usage
 
 Every tool can be imported into a Node.js application. All functions accept `fileData` to skip the REST API:
@@ -462,6 +503,7 @@ import { lintCanvas } from 'figma-library-maintenance-tools/src/tools/lint-canva
 import { auditA11yTargetSizes } from 'figma-library-maintenance-tools/src/tools/audit-a11y-target-sizes/index.js'
 import { auditA11yMissingStates } from 'figma-library-maintenance-tools/src/tools/audit-a11y-missing-states/index.js'
 import { auditA11yDescriptionCoverage } from 'figma-library-maintenance-tools/src/tools/audit-a11y-descriptions/index.js'
+import { lintLayerOrder } from 'figma-library-maintenance-tools/src/tools/lint-layer-order/index.js'
 
 // Via REST API
 const report = await lintLayerNames({
@@ -507,6 +549,7 @@ import { isHardcodedText, buildTextStyleMap } from 'figma-library-maintenance-to
 import { hasValidDescription } from 'figma-library-maintenance-tools/src/tools/check-descriptions/detect.js'
 import { cleanPropertyName, isDefaultName, isCapitalized } from 'figma-library-maintenance-tools/src/tools/audit-property-names/detect.js'
 import { classifyTopLevelItem, scanPage } from 'figma-library-maintenance-tools/src/tools/scan-page-hygiene/detect.js'
+import { checkVariantConsistency, checkAbsolutePositioning, auditLayerOrder, compareSharedOrder, detectNamingMismatch } from 'figma-library-maintenance-tools/src/tools/lint-layer-order/detect.js'
 
 // MCP extraction scripts
 import { getFileScript, getLocalVariablesScript, getTextStylesScript } from 'figma-library-maintenance-tools/src/shared/mcp-scripts.js'
@@ -645,6 +688,10 @@ figma-library-maintenance-tools/
         ├── lint-variants/           # Variant linter
         ├── lint-casing/             # Layer casing linter
         ├── lint-canvas/             # Canvas hygiene linter
+        ├── lint-layer-order/        # Layer ordering linter
+        ├── audit-a11y-target-sizes/ # Accessibility: target size auditor
+        ├── audit-a11y-missing-states/ # Accessibility: missing states auditor
+        ├── audit-a11y-descriptions/ # Accessibility: description quality auditor
         └── run-script/              # Custom script runner
 ```
 
@@ -655,5 +702,10 @@ Each tool directory contains:
 - `index.js` — Orchestrator. Fetches data (or accepts `fileData`), calls detection, assembles the report.
 - `index.test.js` — Tests with mocked API responses.
 - `cli.js` — Thin CLI wrapper. Parses arguments, handles `--stdin`, formats output.
+
+Some tools include additional files:
+
+- `script.js` — Self-contained Plugin API script emitter for running the tool inside Figma via MCP (no REST API token needed).
+- `fix-script.js` — Plugin API script that fixes detected issues directly in the Figma file.
 
 Shared utilities in `src/shared/` handle API communication, tree traversal, argument parsing, `.env` loading, stdin reading, MCP script generation, branch key resolution, URL building, and report formatting.
