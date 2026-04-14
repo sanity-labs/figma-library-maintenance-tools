@@ -123,6 +123,49 @@ export function isRemoteBinding(binding, localIds) {
 }
 
 /**
+ * Valid field names for `setBoundVariableForEffect` in the Figma Plugin API.
+ * @type {string[]}
+ */
+export const EFFECT_FIELDS = ["color", "offsetX", "offsetY", "radius", "spread"];
+
+/**
+ * Infers the correct `setBoundVariableForEffect` field name from a variable's
+ * resolved type and name.
+ *
+ * The Figma Plugin API's `setBoundVariableForEffect(effectCopy, field, variable)`
+ * requires an explicit field name. When remapping remote effect bindings, we
+ * need to determine which field each variable was bound to. This function uses
+ * the variable's type and naming convention to make that determination:
+ *
+ * - `COLOR` type → `'color'`
+ * - `FLOAT` type with name containing `/blur` → `'radius'`
+ * - `FLOAT` type with name containing `/spread` → `'spread'`
+ * - `FLOAT` type with name ending in `/x` → `'offsetX'`
+ * - `FLOAT` type with name ending in `/y` → `'offsetY'`
+ * - Anything else → `null` (caller should skip or handle manually)
+ *
+ * @param {string} resolvedType - The variable's resolved type ('COLOR' or 'FLOAT')
+ * @param {string} variableName - The variable's name (e.g. 'shadow/2/umbra/blur')
+ * @returns {string|null} The effect field name, or null if not inferable
+ */
+export function inferEffectField(resolvedType, variableName) {
+  if (resolvedType === "COLOR") return "color";
+  if (resolvedType !== "FLOAT") return null;
+
+  if (variableName.indexOf("/blur") !== -1) return "radius";
+  if (variableName.indexOf("/spread") !== -1) return "spread";
+
+  // Check for offset axes — must end with /x or /y (not just contain them)
+  if (/\/x$/.test(variableName)) return "offsetX";
+  if (/\/y$/.test(variableName)) return "offsetY";
+
+  // Fallback for names like "card/shadow/outline" — these are typically
+  // float values bound to spread or radius. Return null to signal the
+  // caller that manual mapping is needed.
+  return null;
+}
+
+/**
  * Detects all remote variable bindings on a single node.
  *
  * Inspects `boundVariables` for each property, checking whether the

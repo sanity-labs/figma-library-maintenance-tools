@@ -4,6 +4,7 @@ import {
   buildLocalVariablesByName,
   resolveVariableName,
   isRemoteBinding,
+  inferEffectField,
   detectRemoteBindingsOnNode,
   detectRemoteBindings,
   detectRemoteBindingsOnPage,
@@ -341,5 +342,57 @@ describe("detectRemoteBindingsOnPage", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0].componentName).toBe("Components");
     expect(issues[0].nodeId).toBe("20:1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inferEffectField
+// ---------------------------------------------------------------------------
+
+describe("inferEffectField", () => {
+  it("returns 'color' for COLOR type", () => {
+    expect(inferEffectField("COLOR", "color/shadow/ambient")).toBe("color");
+    expect(inferEffectField("COLOR", "color/focusRing")).toBe("color");
+    expect(inferEffectField("COLOR", "transparent/shadow-outline")).toBe("color");
+  });
+
+  it("returns 'radius' for FLOAT with /blur in name", () => {
+    expect(inferEffectField("FLOAT", "shadow/2/umbra/blur")).toBe("radius");
+    expect(inferEffectField("FLOAT", "shadow/2/penumbra/blur")).toBe("radius");
+    expect(inferEffectField("FLOAT", "shadow/2/ambient/blur")).toBe("radius");
+  });
+
+  it("returns 'spread' for FLOAT with /spread in name", () => {
+    expect(inferEffectField("FLOAT", "shadow/2/umbra/spread")).toBe("spread");
+    expect(inferEffectField("FLOAT", "shadow/2/penumbra/spread")).toBe("spread");
+    expect(inferEffectField("FLOAT", "shadow/2/ambient/spread")).toBe("spread");
+  });
+
+  it("returns 'offsetX' for FLOAT ending in /x", () => {
+    expect(inferEffectField("FLOAT", "shadow/2/umbra/x")).toBe("offsetX");
+    expect(inferEffectField("FLOAT", "shadow/2/penumbra/x")).toBe("offsetX");
+    expect(inferEffectField("FLOAT", "shadow/2/ambient/x")).toBe("offsetX");
+  });
+
+  it("returns 'offsetY' for FLOAT ending in /y", () => {
+    expect(inferEffectField("FLOAT", "shadow/2/umbra/y")).toBe("offsetY");
+    expect(inferEffectField("FLOAT", "shadow/2/penumbra/y")).toBe("offsetY");
+    expect(inferEffectField("FLOAT", "shadow/2/ambient/y")).toBe("offsetY");
+  });
+
+  it("does not match /x or /y in the middle of a name", () => {
+    expect(inferEffectField("FLOAT", "extra/y-axis/size")).toBeNull();
+    expect(inferEffectField("FLOAT", "box/horizontal")).toBeNull();
+  });
+
+  it("returns null for ambiguous FLOAT names", () => {
+    expect(inferEffectField("FLOAT", "card/shadow/outline")).toBeNull();
+    expect(inferEffectField("FLOAT", "space/2")).toBeNull();
+    expect(inferEffectField("FLOAT", "radius/3")).toBeNull();
+  });
+
+  it("returns null for unknown resolved types", () => {
+    expect(inferEffectField("STRING", "some/variable")).toBeNull();
+    expect(inferEffectField("BOOLEAN", "toggle/value")).toBeNull();
   });
 });

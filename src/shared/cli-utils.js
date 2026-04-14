@@ -9,6 +9,7 @@
  * @property {'all'|'components'} [scope='all'] - Scan scope for layer-based tools
  * @property {boolean} [stdin] - When true, read pre-fetched Figma data from stdin (no token needed)
  * @property {boolean} [summary] - When true, deduplicate issues by grouping identical patterns
+ * @property {string[]} [collections] - Variable collection names to include (empty = all)
  */
 
 /**
@@ -45,6 +46,7 @@ export function getEffectiveFileKey(config) {
  *   --exclude-pages, -x  Comma-separated page names to exclude (or set FIGMA_EXCLUDE_PAGES)
  *   --format             Output format: 'json' or 'text' (default: 'text')
  *   --scope, -s          Scan scope: 'all' (default) or 'components'
+ *   --collections, -c    Comma-separated collection names to include in variable lookups
  *   --help, -h           Show help
  *
  * @param {string[]} argv - Process arguments (typically process.argv.slice(2))
@@ -71,6 +73,8 @@ export function parseCliArgs(argv, env = process.env) {
       args.format = argv[++i];
     } else if (arg === "--scope" || arg === "-s") {
       args.scope = argv[++i];
+    } else if (arg === "--collections" || arg === "-c") {
+      args.collections = argv[++i];
     } else if (arg === "--stdin") {
       args.stdin = true;
     } else if (arg === "--summary") {
@@ -104,12 +108,13 @@ export function parseCliArgs(argv, env = process.env) {
   const pages = args.pages ? args.pages.split(",").map((p) => p.trim()) : [];
   const rawExclude = args.excludePages || env.FIGMA_EXCLUDE_PAGES || "";
   const excludePages = rawExclude ? rawExclude.split(",").map((p) => p.trim()).filter(Boolean) : [];
+  const collections = args.collections ? args.collections.split(",").map((c) => c.trim()) : [];
   const format = args.format === "text" ? "text" : "json";
   const scope = args.scope === "components" ? "components" : "all";
   const summary = args.summary || false;
 
   /** @type {CliConfig} */
-  const config = { fileKey, pages, excludePages, format, scope, stdin, summary };
+  const config = { fileKey, pages, excludePages, collections, format, scope, stdin, summary };
 
   if (accessToken) {
     config.accessToken = accessToken;

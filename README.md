@@ -213,9 +213,12 @@ Flags override environment variables:
 | `--pages` | `-p` | Comma-separated page names to include |
 | `--exclude-pages` | `-x` | Comma-separated page names to exclude (takes precedence over `--pages`) |
 | `--scope` | `-s` | Scan scope: `all` (default) or `components` |
+| `--collections` | `-c` | Comma-separated collection names to include in variable lookups |
 | `--stdin` | | Read pre-fetched Figma data from stdin (no token needed) |
 | `--summary` | | Deduplicate issues into unique patterns with occurrence counts |
 | `--format` | | Output format: `json` (default) or `text` |
+| `--emit-fix` | | Emit a parameterized Plugin API fix script (`figma-remap-variables` only) |
+| `--node` | | Target node ID for `--emit-fix` (`figma-remap-variables` only) |
 | `--help` | `-h` | Show help for a specific tool |
 
 ---
@@ -534,24 +537,21 @@ figma-remap-variables --stdin < full.json
 
 **What it reports:** Each remote binding with component name, layer name, field, remote variable name, status (`remappable` or `missing-local`), and suggested local variable ID when a match exists. Summary: total issues, remappable count, missing-local count.
 
-**Fixing:** This tool is detection-only — it reports which bindings need remapping but does not modify the file. Use the companion `fix-script.js` via the Figma MCP `use_figma` tool to perform the actual rebinding:
+**Fixing with `--emit-fix`:** The CLI can generate a ready-to-run Plugin API fix script with the target node ID and collection filter baked in:
 
-```js
-// Read the fix script and set the target node ID
-import { readFileSync } from 'fs'
-const script = readFileSync(
-  'src/tools/remap-remote-variables/fix-script.js', 'utf-8'
-).replace('__TARGET_NODE_ID__', '30123:80806')
+```sh
+# Generate a fix script for a specific component, scoped to two collections
+figma-remap-variables --emit-fix --node 30123:80806 \
+  --collections "v4 Theme,v4 Element tone"
 
-// Pass to use_figma via MCP
-const result = await figmaMcp.use_figma({
-  code: script,
-  fileKey: '<branch-key>',
-  description: 'Remap remote variables to local',
-})
+# Pipe directly to an MCP agent or save to a file
+figma-remap-variables --emit-fix --node 30123:80806 \
+  -c "v4 Theme" > fix-button.js
 ```
 
-The fix script handles scalar fields (spacing, radius, stroke weight), paint arrays (fills, strokes) via `setBoundVariableForPaint`, and effect arrays (shadows, blurs) via `setBoundVariableForEffect`. It returns a structured report with counts and any unmatched variable names that need manual resolution.
+The `--node` flag sets the target node ID (required with `--emit-fix`). The `--collections` / `-c` flag limits which local variable collections are indexed in the fix script — this is critical for large files where iterating all variables exceeds the Plugin API sandbox memory limit (~3K variables). Run `--emit-fix` multiple times with different collection filters to cover all collections safely.
+
+The emitted fix script handles three binding types: scalar fields (spacing, radius, stroke weight) via `setBoundVariable`, paint arrays (fills, strokes) via `setBoundVariableForPaint`, and multi-shadow effect stacks via `setBoundVariableForEffect` with per-effect grouped remapping. The effects handler groups the flat bindings array by effect index and infers the correct field (`color`, `offsetX`, `offsetY`, `radius`, `spread`) from each variable's type and naming convention (e.g. `shadow/2/umbra/blur` → `radius`, `shadow/2/umbra/y` → `offsetY`).
 
 ---
 
@@ -621,7 +621,7 @@ import { hasValidDescription } from 'figma-library-maintenance-tools/src/tools/c
 import { cleanPropertyName, isDefaultName, isCapitalized } from 'figma-library-maintenance-tools/src/tools/audit-property-names/detect.js'
 import { classifyTopLevelItem, scanPage } from 'figma-library-maintenance-tools/src/tools/scan-page-hygiene/detect.js'
 import { checkVariantConsistency, checkAbsolutePositioning, auditLayerOrder, compareSharedOrder, detectNamingMismatch } from 'figma-library-maintenance-tools/src/tools/lint-layer-order/detect.js'
-import { buildLocalVariableIdSet, buildLocalVariablesByName, isRemoteBinding, detectRemoteBindings } from 'figma-library-maintenance-tools/src/tools/remap-remote-variables/detect.js'
+import { buildLocalVariableIdSet, buildLocalVariablesByName, isRemoteBinding, inferEffectField, detectRemoteBindings } from 'figma-library-maintenance-tools/src/tools/remap-remote-variables/detect.js'
 
 // MCP extraction scripts
 import { getFileScript, getLocalVariablesScript, getTextStylesScript } from 'figma-library-maintenance-tools/src/shared/mcp-scripts.js'
