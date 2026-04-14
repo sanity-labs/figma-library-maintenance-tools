@@ -35,6 +35,7 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [13. Accessibility: Missing States Auditor](#13-accessibility-missing-states-auditor)
   - [14. Accessibility: Description Quality Auditor](#14-accessibility-description-quality-auditor)
   - [15. Layer Ordering Linter](#15-layer-ordering-linter)
+  - [16. Remote Variable Remapper](#16-remote-variable-remapper)
 - [Programmatic Usage](#programmatic-usage)
 - [Custom Scripts](#custom-scripts)
 - [Exit Codes](#exit-codes)
@@ -134,10 +135,11 @@ cat figma-data.json | npx figma-audit-properties --stdin -f <file-key>
 cat figma-data.json | npx figma-scan-pages --stdin -f <file-key>
 cat figma-data.json | npx figma-lint-layer-order --stdin -f <file-key>
 
-# The autolayout and radius linters also need variable data:
+# The autolayout, radius, and remap tools also need variable data:
 # stdin JSON must include both keys: { "fileData": { ... }, "variablesData": { ... } }
 cat figma-full.json | npx figma-lint-autolayout --stdin -f <file-key>
 cat figma-full.json | npx figma-lint-radius --stdin -f <file-key>
+cat figma-full.json | npx figma-remap-variables --stdin -f <file-key>
 
 # The text style linter optionally accepts text style data for suggestions:
 # { "fileData": { ... }, "textStylesData": [ ... ] }
@@ -161,7 +163,7 @@ const report = await lintLayerNames({
 })
 ```
 
-All tools support `fileData`. The autolayout and radius linters additionally accept `variablesData`. The text style linter accepts `textStylesData`.
+All tools support `fileData`. The autolayout linter, radius linter, and remote variable remapper additionally accept `variablesData`. The text style linter accepts `textStylesData`.
 
 ---
 
@@ -174,7 +176,7 @@ When creating a Figma personal access token, the required scopes depend on which
 | Scope | Required by |
 |-------|-------------|
 | `file_content:read` | All tools |
-| `file_variables:read` | `figma-lint-autolayout`, `figma-lint-radius` |
+| `file_variables:read` | `figma-lint-autolayout`, `figma-lint-radius`, `figma-remap-variables` |
 
 If you see a 403 error mentioning scope, generate a new token with `file_variables:read` checked.
 
@@ -517,6 +519,42 @@ const DRY_RUN = false;                  // true = preview without applying
 
 ---
 
+### 16. Remote Variable Remapper
+
+Detects variable bindings that reference external (remote) variables — typically left behind when a component is copied from another Figma library. Each remote binding is classified as `remappable` (a local variable with the same name exists) or `missing-local` (no local match found).
+
+> **Note:** Same variable data requirements as the autolayout and radius linters — REST API needs `file_variables:read` scope; `--stdin` needs `variablesData` in the payload.
+
+```sh
+figma-remap-variables
+figma-remap-variables -p "Components" -s components
+figma-remap-variables --summary
+figma-remap-variables --stdin < full.json
+```
+
+**What it reports:** Each remote binding with component name, layer name, field, remote variable name, status (`remappable` or `missing-local`), and suggested local variable ID when a match exists. Summary: total issues, remappable count, missing-local count.
+
+**Fixing:** This tool is detection-only — it reports which bindings need remapping but does not modify the file. Use the companion `fix-script.js` via the Figma MCP `use_figma` tool to perform the actual rebinding:
+
+```js
+// Read the fix script and set the target node ID
+import { readFileSync } from 'fs'
+const script = readFileSync(
+  'src/tools/remap-remote-variables/fix-script.js', 'utf-8'
+).replace('__TARGET_NODE_ID__', '30123:80806')
+
+// Pass to use_figma via MCP
+const result = await figmaMcp.use_figma({
+  code: script,
+  fileKey: '<branch-key>',
+  description: 'Remap remote variables to local',
+})
+```
+
+The fix script handles scalar fields (spacing, radius, stroke weight), paint arrays (fills, strokes) via `setBoundVariableForPaint`, and effect arrays (shadows, blurs) via `setBoundVariableForEffect`. It returns a structured report with counts and any unmatched variable names that need manual resolution.
+
+---
+
 ## Programmatic Usage
 
 Every tool can be imported into a Node.js application. All functions accept `fileData` to skip the REST API:
@@ -583,6 +621,7 @@ import { hasValidDescription } from 'figma-library-maintenance-tools/src/tools/c
 import { cleanPropertyName, isDefaultName, isCapitalized } from 'figma-library-maintenance-tools/src/tools/audit-property-names/detect.js'
 import { classifyTopLevelItem, scanPage } from 'figma-library-maintenance-tools/src/tools/scan-page-hygiene/detect.js'
 import { checkVariantConsistency, checkAbsolutePositioning, auditLayerOrder, compareSharedOrder, detectNamingMismatch } from 'figma-library-maintenance-tools/src/tools/lint-layer-order/detect.js'
+import { buildLocalVariableIdSet, buildLocalVariablesByName, isRemoteBinding, detectRemoteBindings } from 'figma-library-maintenance-tools/src/tools/remap-remote-variables/detect.js'
 
 // MCP extraction scripts
 import { getFileScript, getLocalVariablesScript, getTextStylesScript } from 'figma-library-maintenance-tools/src/shared/mcp-scripts.js'
@@ -725,6 +764,7 @@ figma-library-maintenance-tools/
         ├── audit-a11y-target-sizes/ # Accessibility: target size auditor
         ├── audit-a11y-missing-states/ # Accessibility: missing states auditor
         ├── audit-a11y-descriptions/ # Accessibility: description quality auditor
+        ├── remap-remote-variables/  # Remote variable remapper (detect + fix)
         └── run-script/              # Custom script runner
 ```
 
