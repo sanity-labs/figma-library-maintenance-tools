@@ -5,7 +5,7 @@
  * @property {string} propertyName - The clean property name (without hash)
  * @property {string} rawPropertyKey - The raw property key (with hash)
  * @property {string} propertyType - VARIANT, BOOLEAN, TEXT, INSTANCE_SWAP
- * @property {'capitalized'|'default-name'|'toggle-inconsistency'} violationType
+ * @property {'capitalized'|'default-name'|'toggle-inconsistency'|'parens-in-name'} violationType
  * @property {string} message - Human-readable description of the violation
  */
 
@@ -107,6 +107,27 @@ export function isCapitalized(cleanName) {
 }
 
 /**
+ * Tests whether a property name contains parentheses.
+ *
+ * Parenthetical qualifiers in property names (e.g. `"Icon (Left)"`,
+ * `"Text (Primary)"`) should be restructured so the qualifier is part of
+ * the name proper (`"icon left"`, `"primary text"`) or expressed with the
+ * ↳ dependency prefix. Parens create parse ambiguity for automation and
+ * conflict with the lowercase-alphanumeric-and-spaces convention.
+ *
+ * @param {string} cleanName - The clean property name (without hash suffix)
+ * @returns {boolean} `true` if the name contains `(` or `)`
+ *
+ * @example
+ * hasParens('Icon (Left)')   // true
+ * hasParens('show icon')     // false
+ * hasParens('size')          // false
+ */
+export function hasParens(cleanName) {
+  return cleanName.includes('(') || cleanName.includes(')')
+}
+
+/**
  * Categorizes the prefix convention used by a boolean property name.
  *
  * Many design systems prefix boolean/toggle properties with either
@@ -137,12 +158,15 @@ export function categorizeBooleanPrefix(cleanName) {
  * Audits an array of components for property naming convention violations.
  *
  * This function inspects every property in each component's
- * `componentPropertyDefinitions` and checks for three kinds of violations:
+ * `componentPropertyDefinitions` and checks for four kinds of violations:
  *
  * 1. **default-name** — The property still has a Figma default name like "Property 1".
  * 2. **capitalized** — The property name starts with an uppercase letter,
  *    violating the convention that property names should be lowercase.
- * 3. **toggle-inconsistency** — The library mixes `"show "` and `"with "` prefixes
+ * 3. **parens-in-name** — The property name contains parentheses. Parenthetical
+ *    qualifiers (e.g. "Icon (Left)") should be restructured into the name proper
+ *    or expressed with the ↳ dependency prefix.
+ * 4. **toggle-inconsistency** — The library mixes `"show "` and `"with "` prefixes
  *    for boolean properties. Whichever convention is in the minority gets flagged.
  *
  * @param {ComponentInput[]} components - Array of component objects with property definitions
@@ -215,6 +239,19 @@ export function auditProperties(components) {
           propertyType,
           violationType: 'capitalized',
           message: `Property "${cleanName}" in "${component.name}" starts with an uppercase letter. Use lowercase naming.`,
+        })
+      }
+
+      // Check for parentheses in names
+      if (hasParens(cleanName)) {
+        issues.push({
+          componentName: component.name,
+          nodeId: component.id,
+          propertyName: cleanName,
+          rawPropertyKey: rawKey,
+          propertyType,
+          violationType: 'parens-in-name',
+          message: `Property "${cleanName}" in "${component.name}" contains parentheses. Restructure so the qualifier is part of the name (e.g. "icon left") or use the ↳ dependency prefix.`,
         })
       }
 
@@ -383,6 +420,92 @@ export function detectDependencyPrefixOrder(components) {
             })
           }
         }
+      }
+    }
+  }
+
+  return issues
+}
+
+/**
+ * @typedef {Object} OrphanDependencyIssue
+ * @property {string} componentName
+ * @property {string} nodeId
+ * @property {string} dependentProperty - The property with `↳` prefix
+ * @property {string} expectedParent - The parent toggle name that would justify the ↳ prefix
+ * @property {'orphan-dependency-prefix'} violationType
+ * @property {string} message
+ */
+
+/**
+ * Detects `↳`-prefixed properties that have no matching `show X` boolean
+ * parent **anywhere** in the component's property list.
+ *
+ * The ↳ prefix communicates that a property only makes sense when a paired
+ * toggle is on — e.g. `↳ icon` paired with `show icon`. If no toggle exists,
+ * the prefix is misleading: the property is always active, so the dependency
+ * it implies isn't real.
+ *
+ * This is distinct from {@link detectDependencyPrefixOrder}, which only fires
+ * when a parent toggle exists but appears *after* the dependent in the
+ * property list. This detector catches the case where the parent is entirely
+ * absent.
+ *
+ * Resolution is either (a) add the missing `show X` boolean, or (b) remove
+ * the ↳ prefix and name the property without the dependency signal.
+ *
+ * @param {ComponentInput[]} components
+ * @returns {OrphanDependencyIssue[]}
+ *
+ * @example
+ * detectOrphanDependencyPrefix([{
+ *   name: 'MenuItem', id: '1:1',
+ *   componentPropertyDefinitions: {
+ *     '↳ icon#111': { type: 'INSTANCE_SWAP' },
+ *     'text#222': { type: 'TEXT' }
+ *   }
+ * }])
+ * // → [{ violationType: 'orphan-dependency-prefix', dependentProperty: '↳ icon',
+ * //      expectedParent: 'show icon', ... }]
+ */
+export function detectOrphanDependencyPrefix(components) {
+  /** @type {OrphanDependencyIssue[]} */
+  const issues = []
+
+  for (const component of components) {
+    const definitions = component.componentPropertyDefinitions
+    if (!definitions) continue
+
+    const entries = Object.entries(definitions)
+
+    // First pass: collect every `show X` boolean name, lowercased
+    const showBooleanElements = new Set()
+    for (const [rawKey, definition] of entries) {
+      if (definition.type !== 'BOOLEAN') continue
+      const cleanName = cleanPropertyName(rawKey)
+      if (cleanName.toLowerCase().startsWith('show ')) {
+        showBooleanElements.add(cleanName.slice('show '.length).trim().toLowerCase())
+      }
+    }
+
+    // Second pass: for every ↳-prefixed property, check if a matching show
+    // boolean exists anywhere in the list (not just before it)
+    for (const [rawKey] of entries) {
+      const cleanName = cleanPropertyName(rawKey)
+      if (!cleanName.startsWith('↳')) continue
+
+      const dependentElement = cleanName.slice('↳'.length).trim().toLowerCase()
+      if (dependentElement.length === 0) continue
+
+      if (!showBooleanElements.has(dependentElement)) {
+        issues.push({
+          componentName: component.name,
+          nodeId: component.id,
+          dependentProperty: cleanName,
+          expectedParent: `show ${dependentElement}`,
+          violationType: 'orphan-dependency-prefix',
+          message: `Property "${cleanName}" in "${component.name}" uses the ↳ dependency prefix but no "show ${dependentElement}" boolean exists. Either add the toggle or remove the ↳ prefix.`,
+        })
       }
     }
   }

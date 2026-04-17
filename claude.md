@@ -31,7 +31,7 @@ Most tools only need `file_content:read`. The autolayout and radius linters addi
 | Token scope | Tools that require it |
 |-------------|----------------------|
 | `file_content:read` | All tools |
-| `file_variables:read` | `figma-lint-autolayout`, `figma-lint-radius` |
+| `file_variables:read` | `figma-lint-autolayout`, `figma-lint-radius`, `figma-audit-token-drift` |
 
 ## Data Sources
 
@@ -105,6 +105,7 @@ const report = await lintLayerNames({
 | `figma-lint-autolayout` | Auto-layout padding/gap values not bound to a spacing variable | `variablesData` — needs `file_variables:read` scope |
 | `figma-lint-radius` | Border radius values not bound to a radius variable | `variablesData` — needs `file_variables:read` scope |
 | `figma-lint-text-styles` | Text nodes with hardcoded font settings, no text style applied | `textStylesData` optional — enables style suggestions |
+| `figma-audit-token-drift` | Value drift between two files' variable collections (source-of-truth vs library). Resolves alias chains and compares resolved values per variable × mode. | `variablesData` for BOTH files — needs `file_variables:read` scope (Enterprise) or pre-fetched via MCP |
 
 ### Component structure
 

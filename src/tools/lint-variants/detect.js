@@ -32,6 +32,17 @@ import { traverseNodes } from '../../shared/tree-traversal.js'
  */
 
 /**
+ * @typedef {Object} VariantValueFormatIssue
+ * @property {string} componentName - Component set name
+ * @property {string} nodeId - Figma node ID
+ * @property {string} propertyName - The variant property containing the malformed value
+ * @property {string} invalidValue - The value that failed format validation
+ * @property {'capitalized'|'non-alphanumeric'|'whitespace'} reason - Why the value was flagged
+ * @property {'variant-value-format'} issueType
+ * @property {string} message
+ */
+
+/**
  * @typedef {Object} VariantIssue
  * @property {string} componentName
  * @property {string} nodeId
@@ -194,6 +205,102 @@ export function detectCoverageGaps(componentName, nodeId, propertyValues, existi
 }
 
 /**
+ * Regex matching well-formed variant values.
+ *
+ * Values must be:
+ * - Lowercase (no uppercase letters)
+ * - Alphanumeric (letters + digits only)
+ * - No whitespace, punctuation, or parentheses
+ *
+ * Rationale (from variant-value-format-rules.md):
+ * - `enabled`, `hovered`, `primary`, `true`, `false`, `1`, `2` ✓
+ * - `Enabled`, `primary (legacy)`, `true ` (trailing space), `yes`/`no` as
+ *   booleans ✗
+ *
+ * Note: this regex is a structural check only — it does not enforce that
+ * state values come from the canonical state vocabulary, or that booleans
+ * use true/false rather than yes/no. Those are semantic checks layered on
+ * top of this one (see lint-variants/detect.js callers).
+ *
+ * @type {RegExp}
+ */
+export const VARIANT_VALUE_PATTERN = /^[a-z0-9]+$/
+
+/**
+ * Tests whether a variant value is well-formed per VARIANT_VALUE_PATTERN.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ *
+ * @example
+ * isValidVariantValue('enabled')         // true
+ * isValidVariantValue('primary')         // true
+ * isValidVariantValue('true')            // true
+ * isValidVariantValue('1')               // true
+ * isValidVariantValue('Enabled')         // false — uppercase
+ * isValidVariantValue('primary legacy')  // false — whitespace
+ * isValidVariantValue('primary-legacy')  // false — hyphen
+ * isValidVariantValue('primary (legacy)')// false — parens + whitespace
+ */
+export function isValidVariantValue(value) {
+  return VARIANT_VALUE_PATTERN.test(value)
+}
+
+/**
+ * Classifies why a variant value failed format validation. Returns the most
+ * specific reason that applies; when a value has multiple problems the
+ * classification follows this priority: whitespace → capitalized → non-alphanumeric.
+ *
+ * @param {string} value - A variant value that has already failed `isValidVariantValue`
+ * @returns {'capitalized'|'non-alphanumeric'|'whitespace'}
+ */
+export function classifyInvalidVariantValue(value) {
+  if (/\s/.test(value)) return 'whitespace'
+  if (/[A-Z]/.test(value)) return 'capitalized'
+  return 'non-alphanumeric'
+}
+
+/**
+ * Detects variant property values that don't match the lowercase-alphanumeric
+ * format. Flags values like `Enabled`, `primary (legacy)`, `small-size`, etc.
+ *
+ * Runs against the values extracted from parsed variant names — so the input
+ * is the per-property value map, not the raw variant children. This keeps
+ * the detector consistent with `detectSingleValueVariants`.
+ *
+ * Empty values (produced by malformed variant name strings like `state=,
+ * size=1`) are ignored — those are caught by `parseVariantName` upstream,
+ * not here.
+ *
+ * @param {string} componentName
+ * @param {string} nodeId
+ * @param {Object<string, string[]>} propertyValues
+ * @returns {VariantValueFormatIssue[]}
+ */
+export function detectVariantValueFormat(componentName, nodeId, propertyValues) {
+  /** @type {VariantValueFormatIssue[]} */
+  const issues = []
+  for (const [propertyName, values] of Object.entries(propertyValues)) {
+    for (const value of values) {
+      if (value.length === 0) continue
+      if (!isValidVariantValue(value)) {
+        const reason = classifyInvalidVariantValue(value)
+        issues.push({
+          componentName,
+          nodeId,
+          propertyName,
+          invalidValue: value,
+          reason,
+          issueType: 'variant-value-format',
+          message: `Variant "${propertyName}=${value}" in "${componentName}" is ${reason === 'whitespace' ? 'contains whitespace' : reason === 'capitalized' ? 'not lowercase' : 'not alphanumeric'}. Rewrite as lowercase alphanumeric (e.g. "enabled", "primary", "true").`,
+        })
+      }
+    }
+  }
+  return issues
+}
+
+/**
  * Runs all variant checks on a single component set node.
  *
  * @param {{ name: string, id: string, children?: { name: string, id: string, type: string }[] }} componentSetNode
@@ -218,6 +325,7 @@ export function auditComponentSetVariants(componentSetNode, options = {}) {
   const parsedVariants = variants.map((v) => parseVariantName(v.name))
   const propertyValues = extractPropertyValues(parsedVariants)
   issues.push(...detectSingleValueVariants(componentName, nodeId, propertyValues))
+  issues.push(...detectVariantValueFormat(componentName, nodeId, propertyValues))
 
   if (includeGaps) {
     const existingCanonical = new Set(parsedVariants.map((pv) => buildVariantName(pv)))

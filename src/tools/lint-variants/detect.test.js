@@ -3,6 +3,8 @@ import {
   parseVariantName, buildVariantName, extractPropertyValues,
   detectSingleValueVariants, detectDuplicateVariantNames,
   detectCoverageGaps, auditComponentSetVariants,
+  isValidVariantValue, classifyInvalidVariantValue,
+  detectVariantValueFormat,
 } from './detect.js'
 
 describe('parseVariantName', () => {
@@ -166,5 +168,124 @@ describe('auditComponentSetVariants', () => {
       ],
     }
     expect(auditComponentSetVariants(node)).toHaveLength(0)
+  })
+
+  it('runs the variant-value-format check by default', () => {
+    const node = {
+      name: 'Button', id: '1:80',
+      children: [
+        { name: 'state=Enabled', id: '1:81', type: 'COMPONENT' },
+        { name: 'state=hovered', id: '1:82', type: 'COMPONENT' },
+      ],
+    }
+    expect(auditComponentSetVariants(node).some((i) => i.issueType === 'variant-value-format')).toBe(true)
+  })
+})
+
+describe('isValidVariantValue', () => {
+  it('accepts simple lowercase alphanumeric values', () => {
+    expect(isValidVariantValue('enabled')).toBe(true)
+    expect(isValidVariantValue('primary')).toBe(true)
+    expect(isValidVariantValue('true')).toBe(true)
+    expect(isValidVariantValue('false')).toBe(true)
+  })
+
+  it('accepts numeric values', () => {
+    expect(isValidVariantValue('1')).toBe(true)
+    expect(isValidVariantValue('42')).toBe(true)
+  })
+
+  it('accepts alphanumeric combinations', () => {
+    expect(isValidVariantValue('size1')).toBe(true)
+    expect(isValidVariantValue('v2')).toBe(true)
+  })
+
+  it('rejects capitalized values', () => {
+    expect(isValidVariantValue('Enabled')).toBe(false)
+    expect(isValidVariantValue('PRIMARY')).toBe(false)
+  })
+
+  it('rejects values with whitespace', () => {
+    expect(isValidVariantValue('primary legacy')).toBe(false)
+    expect(isValidVariantValue('enabled ')).toBe(false)
+    expect(isValidVariantValue(' enabled')).toBe(false)
+  })
+
+  it('rejects values with hyphens or underscores', () => {
+    expect(isValidVariantValue('primary-legacy')).toBe(false)
+    expect(isValidVariantValue('size_1')).toBe(false)
+  })
+
+  it('rejects values with parentheses', () => {
+    expect(isValidVariantValue('primary (legacy)')).toBe(false)
+    expect(isValidVariantValue('enabled()')).toBe(false)
+  })
+
+  it('rejects empty string', () => {
+    expect(isValidVariantValue('')).toBe(false)
+  })
+})
+
+describe('classifyInvalidVariantValue', () => {
+  it('returns "whitespace" for values containing spaces', () => {
+    expect(classifyInvalidVariantValue('primary legacy')).toBe('whitespace')
+    expect(classifyInvalidVariantValue('Primary Legacy')).toBe('whitespace') // whitespace wins over capitalized
+  })
+
+  it('returns "capitalized" for uppercase values without whitespace', () => {
+    expect(classifyInvalidVariantValue('Enabled')).toBe('capitalized')
+    expect(classifyInvalidVariantValue('PRIMARY')).toBe('capitalized')
+  })
+
+  it('returns "non-alphanumeric" for lowercase values with other non-alpha chars', () => {
+    expect(classifyInvalidVariantValue('primary-legacy')).toBe('non-alphanumeric')
+    expect(classifyInvalidVariantValue('size_1')).toBe('non-alphanumeric')
+    expect(classifyInvalidVariantValue('primary(legacy)')).toBe('non-alphanumeric')
+  })
+})
+
+describe('detectVariantValueFormat', () => {
+  it('flags a capitalized value', () => {
+    const issues = detectVariantValueFormat('Button', '1:1', { state: ['Enabled', 'hovered'] })
+    expect(issues).toHaveLength(1)
+    expect(issues[0].propertyName).toBe('state')
+    expect(issues[0].invalidValue).toBe('Enabled')
+    expect(issues[0].reason).toBe('capitalized')
+    expect(issues[0].issueType).toBe('variant-value-format')
+  })
+
+  it('flags multiple invalid values across multiple properties', () => {
+    const issues = detectVariantValueFormat('Button', '1:2', {
+      state: ['Enabled', 'hovered'],
+      tone: ['primary (legacy)', 'critical'],
+    })
+    expect(issues).toHaveLength(2)
+    const values = issues.map((i) => i.invalidValue).sort()
+    expect(values).toEqual(['Enabled', 'primary (legacy)'])
+  })
+
+  it('returns no issues when all values are valid', () => {
+    const issues = detectVariantValueFormat('Button', '1:3', {
+      state: ['enabled', 'hovered', 'pressed'],
+      size: ['1', '2', '3'],
+    })
+    expect(issues).toHaveLength(0)
+  })
+
+  it('ignores empty-string values (caught upstream)', () => {
+    // parseVariantName produces empty values for malformed inputs like 'size='.
+    // The parser handles those; this detector shouldn't report on them.
+    const issues = detectVariantValueFormat('Button', '1:4', { state: ['', 'hovered'] })
+    expect(issues).toHaveLength(0)
+  })
+
+  it('classifies whitespace violations with the whitespace reason', () => {
+    const issues = detectVariantValueFormat('Button', '1:5', { tone: ['primary legacy'] })
+    expect(issues).toHaveLength(1)
+    expect(issues[0].reason).toBe('whitespace')
+  })
+
+  it('returns empty for empty property-values map', () => {
+    expect(detectVariantValueFormat('Empty', '1:6', {})).toHaveLength(0)
   })
 })

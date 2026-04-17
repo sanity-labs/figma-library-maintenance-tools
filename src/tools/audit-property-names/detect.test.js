@@ -3,10 +3,12 @@ import {
   cleanPropertyName,
   isDefaultName,
   isCapitalized,
+  hasParens,
   categorizeBooleanPrefix,
   auditProperties,
   detectBooleanVariantConflicts,
   detectDependencyPrefixOrder,
+  detectOrphanDependencyPrefix,
 } from './detect.js'
 
 // ---------------------------------------------------------------------------
@@ -145,6 +147,43 @@ describe('isCapitalized', () => {
 })
 
 // ---------------------------------------------------------------------------
+// hasParens
+// ---------------------------------------------------------------------------
+describe('hasParens', () => {
+  it('returns true for "Icon (Left)"', () => {
+    expect(hasParens('Icon (Left)')).toBe(true)
+  })
+
+  it('returns true for "Text (Primary)"', () => {
+    expect(hasParens('Text (Primary)')).toBe(true)
+  })
+
+  it('returns true when only an opening paren is present', () => {
+    expect(hasParens('icon (left')).toBe(true)
+  })
+
+  it('returns true when only a closing paren is present', () => {
+    expect(hasParens('icon left)')).toBe(true)
+  })
+
+  it('returns false for "show icon"', () => {
+    expect(hasParens('show icon')).toBe(false)
+  })
+
+  it('returns false for a simple lowercase name', () => {
+    expect(hasParens('size')).toBe(false)
+  })
+
+  it('returns false for a name with the ↳ dependency prefix', () => {
+    expect(hasParens('↳ icon')).toBe(false)
+  })
+
+  it('returns false for an empty string', () => {
+    expect(hasParens('')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // categorizeBooleanPrefix
 // ---------------------------------------------------------------------------
 describe('categorizeBooleanPrefix', () => {
@@ -235,6 +274,57 @@ describe('auditProperties', () => {
     expect(capIssue.componentName).toBe('Card')
     expect(capIssue.propertyName).toBe('Size')
     expect(capIssue.propertyType).toBe('VARIANT')
+  })
+
+  it('flags a property name containing parentheses', () => {
+    const components = [
+      {
+        name: 'Button',
+        id: '2:2',
+        componentPropertyDefinitions: {
+          'Icon (Left)#555': { type: 'INSTANCE_SWAP' },
+        },
+      },
+    ]
+
+    const { issues } = auditProperties(components)
+
+    const parenIssue = issues.find((i) => i.violationType === 'parens-in-name')
+    expect(parenIssue).toBeDefined()
+    expect(parenIssue.componentName).toBe('Button')
+    expect(parenIssue.propertyName).toBe('Icon (Left)')
+    expect(parenIssue.propertyType).toBe('INSTANCE_SWAP')
+  })
+
+  it('flags a single property for both capitalized and parens-in-name violations', () => {
+    const components = [
+      {
+        name: 'Card',
+        id: '2:3',
+        componentPropertyDefinitions: {
+          'Icon (Left)#555': { type: 'INSTANCE_SWAP' },
+        },
+      },
+    ]
+
+    const { issues } = auditProperties(components)
+    const types = issues.map((i) => i.violationType)
+    expect(types).toContain('capitalized')
+    expect(types).toContain('parens-in-name')
+  })
+
+  it('does not flag parens-in-name when the name has no parens', () => {
+    const components = [
+      {
+        name: 'Plain',
+        id: '2:4',
+        componentPropertyDefinitions: {
+          'show icon#111': { type: 'BOOLEAN' },
+        },
+      },
+    ]
+    const { issues } = auditProperties(components)
+    expect(issues.find((i) => i.violationType === 'parens-in-name')).toBeUndefined()
   })
 
   it('reports no issues for correct lowercase property names', () => {
@@ -601,5 +691,110 @@ describe('detectDependencyPrefixOrder', () => {
       name: 'Custom', id: '4:1',
       componentPropertyDefinitions: { '↳ icon#111': { type: 'INSTANCE_SWAP' } },
     }])).toHaveLength(0)
+  })
+})
+
+describe('detectOrphanDependencyPrefix', () => {
+  it('flags a ↳ property with no matching show boolean', () => {
+    const issues = detectOrphanDependencyPrefix([{
+      name: 'MenuItem', id: '1:1',
+      componentPropertyDefinitions: {
+        '↳ icon#111': { type: 'INSTANCE_SWAP' },
+        'text#222': { type: 'TEXT' },
+      },
+    }])
+    expect(issues).toHaveLength(1)
+    expect(issues[0].dependentProperty).toBe('↳ icon')
+    expect(issues[0].expectedParent).toBe('show icon')
+    expect(issues[0].violationType).toBe('orphan-dependency-prefix')
+    expect(issues[0].componentName).toBe('MenuItem')
+  })
+
+  it('does not flag a ↳ property when its paired show boolean exists (before)', () => {
+    const issues = detectOrphanDependencyPrefix([{
+      name: 'Button', id: '2:1',
+      componentPropertyDefinitions: {
+        'show icon#111': { type: 'BOOLEAN' },
+        '↳ icon#222': { type: 'INSTANCE_SWAP' },
+      },
+    }])
+    expect(issues).toHaveLength(0)
+  })
+
+  it('does not flag a ↳ property when its paired show boolean exists (after)', () => {
+    // This is the complement to detectDependencyPrefixOrder — the parent exists
+    // but appears later in the list. That's a different violation (order), not
+    // an orphan, so this detector correctly returns zero.
+    const issues = detectOrphanDependencyPrefix([{
+      name: 'Badge', id: '3:1',
+      componentPropertyDefinitions: {
+        '↳ text#111': { type: 'TEXT' },
+        'show text#222': { type: 'BOOLEAN' },
+      },
+    }])
+    expect(issues).toHaveLength(0)
+  })
+
+  it('matches the show boolean case-insensitively', () => {
+    const issues = detectOrphanDependencyPrefix([{
+      name: 'Mixed', id: '4:1',
+      componentPropertyDefinitions: {
+        'Show Icon#111': { type: 'BOOLEAN' },
+        '↳ icon#222': { type: 'INSTANCE_SWAP' },
+      },
+    }])
+    expect(issues).toHaveLength(0)
+  })
+
+  it('flags multiple orphan ↳ properties on one component', () => {
+    const issues = detectOrphanDependencyPrefix([{
+      name: 'Multi', id: '5:1',
+      componentPropertyDefinitions: {
+        '↳ icon#111': { type: 'INSTANCE_SWAP' },
+        '↳ badge#222': { type: 'INSTANCE_SWAP' },
+        'text#333': { type: 'TEXT' },
+      },
+    }])
+    expect(issues).toHaveLength(2)
+    const names = issues.map((i) => i.dependentProperty).sort()
+    expect(names).toEqual(['↳ badge', '↳ icon'])
+  })
+
+  it('ignores a ↳ prefix with no element name after it', () => {
+    const issues = detectOrphanDependencyPrefix([{
+      name: 'Empty', id: '6:1',
+      componentPropertyDefinitions: {
+        '↳#111': { type: 'INSTANCE_SWAP' },
+      },
+    }])
+    expect(issues).toHaveLength(0)
+  })
+
+  it('skips components without definitions', () => {
+    expect(detectOrphanDependencyPrefix([{ name: 'Nothing', id: '7:1' }])).toHaveLength(0)
+  })
+
+  it('handles an empty components array', () => {
+    expect(detectOrphanDependencyPrefix([])).toHaveLength(0)
+  })
+
+  it('is independent across multiple components', () => {
+    const issues = detectOrphanDependencyPrefix([
+      {
+        name: 'Paired', id: '8:1',
+        componentPropertyDefinitions: {
+          'show icon#111': { type: 'BOOLEAN' },
+          '↳ icon#222': { type: 'INSTANCE_SWAP' },
+        },
+      },
+      {
+        name: 'Orphan', id: '8:2',
+        componentPropertyDefinitions: {
+          '↳ icon#333': { type: 'INSTANCE_SWAP' },
+        },
+      },
+    ])
+    expect(issues).toHaveLength(1)
+    expect(issues[0].componentName).toBe('Orphan')
   })
 })

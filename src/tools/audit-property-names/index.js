@@ -1,7 +1,12 @@
 import { createFigmaClient } from "../../shared/figma-client.js";
 import { getEffectiveFileKey } from "../../shared/cli-utils.js";
 import { findComponents } from "../../shared/tree-traversal.js";
-import { auditProperties } from "./detect.js";
+import {
+  auditProperties,
+  detectBooleanVariantConflicts,
+  detectDependencyPrefixOrder,
+  detectOrphanDependencyPrefix,
+} from "./detect.js";
 import { enrichIssuesWithUrls } from "../../shared/figma-urls.js";
 
 /**
@@ -135,7 +140,18 @@ export async function auditPropertyNames({
   const totalProperties = countTotalProperties(allComponents);
   const { issues, toggleSummary } = auditProperties(allComponents);
 
-  const enrichedIssues = enrichIssuesWithUrls(issues, effectiveKey);
+  const booleanVariantConflicts = detectBooleanVariantConflicts(allComponents);
+  const dependencyOrderIssues = detectDependencyPrefixOrder(allComponents);
+  const orphanDependencyIssues = detectOrphanDependencyPrefix(allComponents);
+
+  const allIssues = [
+    ...issues,
+    ...booleanVariantConflicts,
+    ...dependencyOrderIssues,
+    ...orphanDependencyIssues,
+  ];
+
+  const enrichedIssues = enrichIssuesWithUrls(allIssues, effectiveKey);
 
   return {
     title: "Property Naming Convention Report",

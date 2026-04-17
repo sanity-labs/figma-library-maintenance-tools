@@ -36,6 +36,7 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [14. Accessibility: Description Quality Auditor](#14-accessibility-description-quality-auditor)
   - [15. Layer Ordering Linter](#15-layer-ordering-linter)
   - [16. Remote Variable Remapper](#16-remote-variable-remapper)
+  - [17. Token Drift Auditor](#17-token-drift-auditor)
 - [Programmatic Usage](#programmatic-usage)
 - [Custom Scripts](#custom-scripts)
 - [Exit Codes](#exit-codes)
@@ -552,6 +553,57 @@ figma-remap-variables --emit-fix --node 30123:80806 \
 The `--node` flag sets the target node ID (required with `--emit-fix`). The `--collections` / `-c` flag limits which local variable collections are indexed in the fix script — this is critical for large files where iterating all variables exceeds the Plugin API sandbox memory limit (~3K variables). Run `--emit-fix` multiple times with different collection filters to cover all collections safely.
 
 The emitted fix script handles three binding types: scalar fields (spacing, radius, stroke weight) via `setBoundVariable`, paint arrays (fills, strokes) via `setBoundVariableForPaint`, and multi-shadow effect stacks via `setBoundVariableForEffect` with per-effect grouped remapping. The effects handler groups the flat bindings array by effect index and infers the correct field (`color`, `offsetX`, `offsetY`, `radius`, `spread`) from each variable's type and naming convention (e.g. `shadow/2/umbra/blur` → `radius`, `shadow/2/umbra/y` → `offsetY`).
+
+---
+
+### 17. Token Drift Auditor
+
+Detects variable drift between two Figma files. For each mapped pair of collections, resolves every variable's value (walking alias chains) and reports any variable × mode combination where the resolved values differ. Typical use: comparing a source-of-truth design file against a library file to catch when the library's tokens have drifted from their intended values.
+
+Distinct from the remote variable remapper: that tool detects **binding** drift (a component still pointing at someone else's library). This tool detects **value** drift (the library's own variable resolved to a different color than the source file's).
+
+> **Note:** The REST API's local-variables endpoint requires an Enterprise plan. For other plans, use `--stdin` with data extracted via the Figma MCP `use_figma` tool.
+
+```sh
+# REST API — two files
+figma-audit-token-drift \
+  --source-file jFAhPbHB82MMW8lxlatsHv \
+  --target-file 5mhVqXlldJEEB2VWZeKQ4i \
+  --target-branch 4ynk7PfeAqEYs22HpoU8T9
+
+# Stdin — two datasets in one JSON payload
+cat datasets.json | figma-audit-token-drift --stdin
+```
+
+**Stdin payload shape:**
+
+```json
+{
+  "sourceData": { "meta": { "variableCollections": {...}, "variables": {...} } },
+  "targetData": { "meta": { "variableCollections": {...}, "variables": {...} } }
+}
+```
+
+Each `meta` matches the shape returned by the REST API's `GET /files/:key/local_variables` endpoint, or the output of `getLocalVariablesScript()` from `src/shared/mcp-scripts.js` via `use_figma`.
+
+**Collection mapping:** By default, the tool uses the Sanity UI v4 mapping:
+
+| Source collection | → | Target collection |
+|---|---|---|
+| `Theme` | → | `v4 Theme` |
+| `Color scheme` | → | `v4 Color scheme` |
+| `Card tone` | → | `v4 Card tone` |
+| `Avatar color` | → | `v4 Avatar color` |
+| `Element tone` | → | `v4 Element tone` |
+| `Palette` | → | `v4 Palette` |
+
+Override with `--collection-map '{"Source Name":"Target Name"}'` for other libraries.
+
+**What it reports:** For each mapped collection, a status of `match`, `drift`, `missing-source`, or `missing-target`. On drift, every variable × mode with its expected (source) and actual (target) resolved values, plus a short `contentHash` that can be committed as a baseline and checked against in CI.
+
+**How it handles aliases:** The resolver walks alias chains to leaf values. Same-collection aliases resolve in the same mode. Cross-collection aliases use the target collection's first mode (mirroring Figma's runtime behavior when a variable in one collection aliases into another). Cycles return `ERR:cycle`, missing targets return `ERR:missing_target` — error sentinels never false-negative as matches.
+
+**Why the snapshot is name-indexed:** Two Figma files have different underlying variable ids even when they're nominally the same variable. The snapshot keys variables by *name* (e.g. `color/tinted/bg/2`), so drift detection works across files without any id-mapping setup.
 
 ---
 
