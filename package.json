@@ -21,7 +21,8 @@
     "figma-audit-a11y-descriptions": "./src/tools/audit-a11y-descriptions/cli.js",
     "figma-lint-layer-order": "./src/tools/lint-layer-order/cli.js",
     "figma-remap-variables": "./src/tools/remap-remote-variables/cli.js",
-    "figma-audit-token-drift": "./src/tools/audit-token-drift/cli.js"
+    "figma-audit-token-drift": "./src/tools/audit-token-drift/cli.js",
+    "figma-import-dtcg-tokens": "./src/tools/figma-import-dtcg-tokens/cli.js"
   },
   "scripts": {
     "test": "vitest run",
@@ -44,7 +45,8 @@
     "audit:a11y-states":  "node src/tools/audit-a11y-missing-states/cli.js",
     "audit:a11y-docs":    "node src/tools/audit-a11y-descriptions/cli.js",
     "audit:remap":        "node src/tools/remap-remote-variables/cli.js",
-    "audit:token-drift":  "node src/tools/audit-token-drift/cli.js"
+    "audit:token-drift":  "node src/tools/audit-token-drift/cli.js",
+    "import:dtcg":        "node src/tools/figma-import-dtcg-tokens/cli.js"
   },
   "keywords": [
     "figma",

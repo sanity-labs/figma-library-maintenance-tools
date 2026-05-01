@@ -37,6 +37,7 @@ A collection of single-purpose CLI tools that audit and maintain Figma design li
   - [15. Layer Ordering Linter](#15-layer-ordering-linter)
   - [16. Remote Variable Remapper](#16-remote-variable-remapper)
   - [17. Token Drift Auditor](#17-token-drift-auditor)
+  - [18. DTCG Token Importer](#18-dtcg-token-importer)
 - [Programmatic Usage](#programmatic-usage)
 - [Custom Scripts](#custom-scripts)
 - [Exit Codes](#exit-codes)
@@ -604,6 +605,63 @@ Override with `--collection-map '{"Source Name":"Target Name"}'` for other libra
 **How it handles aliases:** The resolver walks alias chains to leaf values. Same-collection aliases resolve in the same mode. Cross-collection aliases use the target collection's first mode (mirroring Figma's runtime behavior when a variable in one collection aliases into another). Cycles return `ERR:cycle`, missing targets return `ERR:missing_target` — error sentinels never false-negative as matches.
 
 **Why the snapshot is name-indexed:** Two Figma files have different underlying variable ids even when they're nominally the same variable. The snapshot keys variables by *name* (e.g. `color/tinted/bg/2`), so drift detection works across files without any id-mapping setup.
+
+---
+
+### 18. DTCG Token Importer
+
+Imports W3C DTCG-format design tokens into Figma library variables, with alias relationships preserved as Figma `VARIABLE_ALIAS` references — not flattened to literal values. Inheritance chains (e.g. `primary-emphasis` → `primary` → `blue.500`) survive intact.
+
+The tool runs in two passes: a topological sort puts primitive variables ahead of any alias that targets them, then per-mode operations are emitted in dependency order. The Plugin API script that performs the writes is generated as text, ready to pipe into `use_figma`.
+
+Distinct from the token drift auditor: that tool *reads* and reports drift between two files. This tool *writes* the tokens that establish the source-of-truth values in the first place. Both share the alias resolver in `src/shared/alias-resolver.js`, so they agree on cycle detection, alias parsing, and resolution semantics.
+
+```sh
+# Plan only — see what would happen
+figma-import-dtcg-tokens --config tokens.config.json
+
+# Emit the Plugin API script with the plan embedded; pipe to use_figma
+figma-import-dtcg-tokens --config tokens.config.json --emit-script > import.js
+
+# JSON output for CI
+figma-import-dtcg-tokens --config tokens.config.json --format json
+```
+
+**Config shape.** A mapping config wires DTCG groups to Figma collections and each Figma mode to a DTCG file:
+
+```json
+{
+  "collections": [
+    {
+      "name": "Palette",
+      "tokenPrefix": "color.palette",
+      "modes": [
+        { "name": "default", "file": "tokens/palette.json" }
+      ]
+    },
+    {
+      "name": "Theme",
+      "tokenPrefix": "color.semantic",
+      "modes": [
+        { "name": "light", "file": "tokens/light.json" },
+        { "name": "dark",  "file": "tokens/dark.json"  }
+      ]
+    }
+  ]
+}
+```
+
+File paths are resolved relative to the config file's directory. Each collection's `tokenPrefix` filters which tokens from its mode files contribute to that collection — so `color.palette.*` and `color.semantic.*` can live in the same DTCG file or be split across files; the tool figures it out from the prefix.
+
+**Type support.** `color` (hex, `rgb()`, `rgba()`) maps to `COLOR`; `dimension`, `number`, and `fontWeight` map to `FLOAT`; `fontFamily` to `STRING`; `boolean` to `BOOLEAN`. Composite types (`shadow`, `gradient`, `typography`) and motion types (`duration`, `cubicBezier`) are skipped with a stable `[skip:unsupported-type]` code — the rest of the import proceeds. Named font weights (`"bold"`) error rather than silently coercing.
+
+**Idempotency.** The Plugin API script compares each value against current Figma state before writing. Matching values are reported `unchanged`. A second run on the same input produces zero changes.
+
+**Verifying with `audit-token-drift`.** After importing, run the drift auditor against the same DTCG source and the target Figma file. Zero drift means the round-trip succeeded. The two tools share the same alias resolver, so any disagreement is a real bug, not a resolution mismatch.
+
+**Error and skip codes.** Every issue gets a stable, greppable code: `cycle`, `type-mismatch-across-modes`, `type-change`, `missing-type`, `invalid-path-whitespace`, `invalid-path-reserved`, `unsupported-type`, `unsupported-color`, `unsupported-dimension`, `named-font-weight`, `missing-alias-target`. Errors abort before any Figma writes; skips proceed with the run.
+
+**What's out of scope (v1):** composite token types, DTCG → Figma styles (text/effect styles), bidirectional sync, OKLCH color space (skipped until Figma exposes a wider gamut to the Plugin API).
 
 ---
 
